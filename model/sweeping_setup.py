@@ -27,7 +27,7 @@ sweep_config = {
         'densetcn_growth_rate_set': {'values': [[96,96,96,96], [192,192,192,192]]},
         'densetcn_reduced_size': {'values': [256, 512, 768]},
         'densetcn_kernel_size_set': {'values': [[3, 5, 7], [5, 7, 9]]},
-        'densetcn_dilation_size_set': {'values': [[1, 2], [1, 2, 4]]},
+        'densetcn_dilation_size_set': {'values': [[1, 2, 4], [1, 2, 4, 8]]},
         'densetcn_hidden_dim': {'values': [256, 512, 768]},
         # MSTCN
         'mstcn_hidden_dim': {'values': [256, 512, 768]},
@@ -36,12 +36,12 @@ sweep_config = {
         'conformer_attention_dim': {'values': [256, 512, 768]},
         'conformer_attention_heads': {'values': [4, 8]},
         'conformer_linear_units': {'values': [512, 1024, 2048]},
-        'conformer_num_blocks': {'values': [4, 8]},
+        'conformer_num_blocks': {'values': [4, 8, 12]},
         # Decoder
         'decoder_attention_dim': {'values': [256, 512, 768]},
         'decoder_attention_heads': {'values': [4, 8]},
         'decoder_linear_units': {'values': [512, 1024, 2048]},
-        'decoder_num_blocks': {'values': [2, 4]},
+        'decoder_num_blocks': {'values': [2, 4, 6]},
     }
 }
 

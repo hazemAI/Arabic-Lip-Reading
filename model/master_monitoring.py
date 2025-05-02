@@ -282,12 +282,18 @@ print(f"Loaded pretrained weights from {pretrained_path}")
 model.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=False)
 print("Successfully loaded pretrained weights")
 
-# Freeze frontend parameters
-for param in model.visual_frontend.parameters():
-    param.requires_grad = False
+# Flag to choose whether to fine-tune the frontend or freeze it
+TRAIN_FRONTEND = False
 
-print("Frontend frozen - parameters will not be updated during training")
-logging.info("Successfully loaded and froze pretrained frontend")
+# Conditionally freeze or fine-tune the frontend
+if TRAIN_FRONTEND:
+    print("Frontend parameters will be updated during training")
+    logging.info("Frontend parameters will be updated during training")
+else:
+    for param in model.visual_frontend.parameters():
+        param.requires_grad = False
+    print("Frontend frozen - parameters will not be updated during training")
+    logging.info("Successfully loaded and froze pretrained frontend")
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
@@ -330,7 +336,7 @@ e2e_model = E2EAVSR(
         'src_attention_dropout_rate': 0.1,
         'normalize_before': True,
     },
-    ctc_weight=0.1,
+    ctc_weight=0.3,
     label_smoothing=0.1,
     beam_size=20,
     length_bonus_weight=0.0
@@ -474,7 +480,7 @@ def train_one_epoch():
     return running_loss / len(train_loader) if len(train_loader) > 0 else 0.0
 
 
-def evaluate_model(data_loader, ctc_weight=0.1, epoch=None, print_samples=True):
+def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     """
     Evaluate the model on the given data loader using E2EAVSR's built-in beam search.
     """
@@ -487,7 +493,7 @@ def evaluate_model(data_loader, ctc_weight=0.1, epoch=None, print_samples=True):
 
     # Determine if we should print samples in this epoch
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
-    max_samples_to_print = 20  # Limit console output to 20 samples
+    max_samples_to_print = 10
 
     # Use E2EAVSR's beam_search directly
     bs = e2e_model.beam_search
@@ -647,7 +653,7 @@ def evaluate_loss(data_loader):
     return running_loss / len(data_loader) if len(data_loader) > 0 else 0.0
 
 # %%
-def train_model(ctc_weight=0.1, checkpoint_path=None):
+def train_model(ctc_weight=0.3, checkpoint_path=None):
     best_val_loss = float('inf')
     start_epoch = 0
     rng_state = get_rng_state()
@@ -753,7 +759,7 @@ def train_model(ctc_weight=0.1, checkpoint_path=None):
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
         # Then compute decoding metrics (CER) via beam search
-        val_cer = evaluate_model(val_loader, print_samples=False)
+        val_cer = evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
         if torch.cuda.is_available():
@@ -779,67 +785,7 @@ def train_model(ctc_weight=0.1, checkpoint_path=None):
             "learning_rate": optimizer.param_groups[0]['lr'],
         })
         
-        # Print detailed prediction samples every 5 epochs
-        if (epoch + 1) % 5 == 0:
-            print("\n" + "="*50)
-            print(f"DETAILED RESULTS AFTER EPOCH {epoch + 1}")
-            print("="*50)
-            
-            # Run evaluation on a small subset of validation data to show predictions
-            with torch.no_grad():
-                # Just evaluate first batch for demonstration
-                for inputs, input_lengths, labels_flat, label_lengths in val_loader:
-                    inputs = inputs.to(device)
-                    input_lengths = input_lengths.to(device)
-                    labels_flat = labels_flat.to(device)
-                    label_lengths = label_lengths.to(device)
-                    
-                    batch_size = inputs.size(0)
-                    # Run raw encoder and unpack hidden features if tuple is returned
-                    enc_out = model(inputs, input_lengths)
-                    encoder_features = enc_out[0] if isinstance(enc_out, tuple) else enc_out
-                    
-                    # Create memory mask based on hidden feature lengths
-                    memory_mask = torch.zeros((batch_size, encoder_features.size(1)), device=device).bool()
-                    for b in range(batch_size):
-                        memory_mask[b, :input_lengths[b]] = True
-                    
-                    # Run beam search for detailed samples via the model's inference API
-                    all_beam_results = e2e_model(inputs, input_lengths)
-                    # Extract the best hypothesis per utterance
-                    all_nbest_hyps = [hyps_b[0] for hyps_b in all_beam_results]
-                    
-                    # Show predictions for a few samples
-                    print(f"\nShowing predictions for {min(3, batch_size)} samples:")
-                    for b in range(min(3, batch_size)):
-                        # Get target indices
-                        start_idx = sum(label_lengths[:b].cpu().tolist()) if b > 0 else 0
-                        end_idx = start_idx + label_lengths[b].item()
-                        target_idx = labels_flat[start_idx:end_idx].cpu().numpy()
-                        
-                        # Get prediction
-                        hyp = all_nbest_hyps[b]
-                        pred_indices = hyp.yseq.cpu().numpy()
-                        
-                        # Convert to text
-                        pred_text = indices_to_text(pred_indices, idx2char)
-                        target_text = indices_to_text(target_idx, idx2char)
-                        
-                        # Compute CER and edit distance on token indices to handle diacritics in tokens
-                        cer, edit_dist = compute_cer(target_idx.tolist(), pred_indices.tolist())
-                        
-                        print(f"\nSample {b+1}:")
-                        print(f"  Prediction: {pred_text}")
-                        print(f"  Target: {target_text}")
-                        print(f"  CER: {cer:.4f}, Edit Distance: {edit_dist}")
-                    
-                    break  # Just show the first batch
-            
-            print("="*50 + "\n")
-            
-            # Current learning rate
-            current_lr = optimizer.param_groups[0]['lr']
-            print(f"Current learning rate: {current_lr:.6f}")
+        
         
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
