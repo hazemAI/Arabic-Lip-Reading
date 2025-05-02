@@ -203,8 +203,8 @@ for file_name in file_names:
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=101/2004, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=101/1903, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1954/2004, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/50, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -214,9 +214,9 @@ X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=101/
 train_dataset = VideoDataset(X_train, y_train, transform=train_transform)
 val_dataset   = VideoDataset(X_val, y_val, transform=val_transform)
 test_dataset  = VideoDataset(X_test, y_test, transform=val_transform)
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
+val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
+test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 
 # %% [markdown]
 # # 4. Model Configuration
@@ -251,15 +251,15 @@ densetcn_options = {
     'dilation_size_set': [1, 2],                # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
     'dropout': 0.1,
-    'hidden_dim': 256,  # hidden dimension for DenseTCN to match adapter output
+    'hidden_dim': 256,
 }
 
 # MSTCN configuration
 mstcn_options = {
     'tcn_type': 'multiscale',
     'hidden_dim': 256,
-    'num_channels': [96, 96, 96, 96],           # 4 layers with 96 channels each (divisible by 3)
-    'kernel_size': [3, 5, 7],                   # 3 kernels for multi-scale processing
+    'num_channels': [96, 96, 96, 96],           # 4 layers with N channels each (divisible by 3)
+    'kernel_size': [3, 5, 7],                   
     'dropout': 0.1,
     'stride': 1,
     'width_mult': 1.0,
@@ -381,7 +381,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.0,
+    label_smoothing=0.1,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
