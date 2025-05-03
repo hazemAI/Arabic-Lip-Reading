@@ -14,7 +14,7 @@ from itertools import groupby
 import numpy as np
 
 
-def end_detect(ended_hyps, i, M=3, D_end=np.log(1 * np.exp(-10))):
+def end_detect(ended_hyps, i, M=2, D_end=np.log(1 * np.exp(-2))):
     """End detection.
 
     described in Eq. (50) of S. Watanabe et al

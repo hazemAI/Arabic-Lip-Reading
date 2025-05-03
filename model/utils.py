@@ -53,27 +53,15 @@ def compute_cer(reference_indices, hypothesis_indices):
     """
     Computes Character Error Rate (CER) directly using token indices.
     Takes raw token indices from our vocabulary (class_mapping.txt).
-    
-    Returns a tuple of (CER, edit_distance)
+    Returns a tuple of (CER, edit_distance).
     """
-    # Use the indices directly - each index is one token in our vocabulary
+    # Use the indices directly: each index is one token
     ref_tokens = reference_indices
     hyp_tokens = hypothesis_indices
-    
-    try:
-        logging.info(f"Debug - Reference tokens ({len(ref_tokens)} tokens): {ref_tokens}")
-        logging.info(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): {hyp_tokens}")
-    except UnicodeEncodeError:
-        # Handle encoding issues in Windows console
-        logging.info(f"Debug - Reference tokens ({len(ref_tokens)} tokens): [Token indices omitted due to encoding issues]")
-        logging.info(f"Debug - Hypothesis tokens ({len(hyp_tokens)} tokens): [Token indices omitted due to encoding issues]")
-    
-    # Calculate edit distance using the editdistance library
+    # Calculate edit distance
     edit_distance = editdistance.eval(ref_tokens, hyp_tokens)
-    
-    # Calculate CER
-    cer = edit_distance / max(len(ref_tokens), 1)  # Avoid division by zero
-    
+    # Calculate CER (avoid division by zero)
+    cer = edit_distance / max(len(ref_tokens), 1)
     return cer, edit_distance
 
 

@@ -18,7 +18,7 @@ from espnet.scorers.ctc import CTCPrefixScorer
 
 
 class E2E(torch.nn.Module):
-    def __init__(self, odim, modality, ctc_weight=0.1, ignore_id=-1):
+    def __init__(self, odim, modality, ctc_weight=0.3, ignore_id=-1):
         super().__init__()
 
         # Override frontend: use our VisualFrontend for video

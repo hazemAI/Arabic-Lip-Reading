@@ -297,7 +297,7 @@ def target_mask(ys_in_pad, ignore_id):
 
 ### 5. positionwise_feed_forward.py
 
-This file implements the position-wise feed-forward networks used in transformer models.
+This file implements the position-wise feed-forward networks used in transformer modules.
 
 #### Key Components
 

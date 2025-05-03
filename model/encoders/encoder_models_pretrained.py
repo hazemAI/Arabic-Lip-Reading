@@ -1,9 +1,9 @@
 import torch.nn as nn
 import math
 import numpy as np
-from encoders.models.resnet import ResNet, BasicBlock
-from encoders.models.tcn import MultibranchTemporalConvNet
-from encoders.models.densetcn import DenseTemporalConvNet
+from encoders.modules.resnet import ResNet, BasicBlock
+from encoders.modules.tcn import MultibranchTemporalConvNet
+from encoders.modules.densetcn import DenseTemporalConvNet
 from espnet.encoder.conformer_encoder import ConformerEncoder
 from espnet.nets_utils import make_non_pad_mask
 from espnet.ctc import CTC as ESPnetCTC
