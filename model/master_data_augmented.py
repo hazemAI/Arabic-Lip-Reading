@@ -200,8 +200,8 @@ for file_name in file_names:
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1954/2004, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/50, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1980/2004, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=6/24, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -324,7 +324,7 @@ model.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=F
 print("Successfully loaded pretrained weights")
 
 # Flag to choose whether to fine-tune the frontend or freeze it
-TRAIN_FRONTEND = False
+TRAIN_FRONTEND = True
 
 # Conditionally freeze or fine-tune the frontend
 if TRAIN_FRONTEND:
@@ -378,7 +378,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.1,
+    label_smoothing=0.2,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
@@ -387,7 +387,7 @@ e2e_model = E2EAVSR(
 # Training parameters
 initial_lr = 3e-4
 total_epochs = 80
-warmup_epochs = 8
+warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
 optimizer = optim.AdamW(
@@ -657,7 +657,6 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
         logging.info(f"Total samples: {n_samples}")
         logging.info(f"Average CER: {avg_cer:.4f}")
 
-    return avg_cer
 
 # --------------------------------------------------------------------------
 def evaluate_loss(data_loader):
@@ -786,7 +785,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
         # Then compute decoding metrics (CER) via beam search
-        val_cer = evaluate_model(val_loader, epoch=epoch)
+        evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
         if torch.cuda.is_available():
@@ -795,13 +794,13 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         
         logging.info(
             f"Epoch {epoch + 1}/{total_epochs}, Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val CER: {val_cer:.4f}"
+            f"Val Loss: {val_loss:.4f}"
         )
         
         # Print summary every epoch to console
         print(
             f"Epoch {epoch + 1}/{total_epochs} - Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val CER: {val_cer:.4f}"
+            f"Val Loss: {val_loss:.4f}"
         )
         
         

@@ -31,7 +31,7 @@ class E2EAVSR(BaseE2E):
         enc_options,
         dec_options,
         ctc_weight=0.3,
-        label_smoothing=0.1,
+        label_smoothing=0.2,
         beam_size=20,
         length_bonus_weight=0.0,
     ):
@@ -106,7 +106,7 @@ class E2EAVSR(BaseE2E):
             sos=sos,
             eos=eos,
             token_list=token_list,
-            pre_beam_score_key="decoder",
+            pre_beam_score_key=None if ctc_weight == 1.0 else "decoder",
         )
 
     def forward(self, x, x_lengths, ys=None, ys_lengths=None):

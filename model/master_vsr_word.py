@@ -259,7 +259,7 @@ model.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=F
 print("Successfully loaded pretrained weights")
 
 # Flag to choose whether to fine-tune the frontend or freeze it
-TRAIN_FRONTEND = False
+TRAIN_FRONTEND = True
 
 # Conditionally freeze or fine-tune the frontend
 if TRAIN_FRONTEND:
@@ -313,7 +313,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.25,
+    label_smoothing=0.2,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
@@ -322,7 +322,7 @@ e2e_model = E2EAVSR(
 # Training parameters
 initial_lr = 3e-4
 total_epochs = 80
-warmup_epochs = 8
+warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
 optimizer = optim.AdamW(
@@ -591,7 +591,6 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
         logging.info(f"Total samples: {n_samples}")
         logging.info(f"Average WER: {avg_wer:.4f}")
 
-    return avg_wer
 
 # --------------------------------------------------------------------------
 def evaluate_loss(data_loader):
@@ -720,7 +719,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
         # Then compute decoding metrics (WER) via beam search
-        val_wer = evaluate_model(val_loader, epoch=epoch)
+        evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
         if torch.cuda.is_available():
@@ -729,13 +728,13 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         
         logging.info(
             f"Epoch {epoch + 1}/{total_epochs}, Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val WER: {val_wer:.4f}"
+            f"Val Loss: {val_loss:.4f}"
         )
         
         # Print summary every epoch to console
         print(
             f"Epoch {epoch + 1}/{total_epochs} - Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val WER: {val_wer:.4f}"
+            f"Val Loss: {val_loss:.4f}"
         )
         
         # Save checkpoint every 10 epochs
