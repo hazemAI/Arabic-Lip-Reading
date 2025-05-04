@@ -334,10 +334,10 @@ if TRAIN_FRONTEND:
     print("Frontend parameters will be updated during training")
     logging.info("Frontend parameters will be updated during training")
 else:
-    for param in model.visual_frontend.parameters():
-        param.requires_grad = False
-    print("Frontend frozen - parameters will not be updated during training")
-    logging.info("Successfully loaded and froze pretrained frontend")
+for param in model.visual_frontend.parameters():
+    param.requires_grad = False
+print("Frontend frozen - parameters will not be updated during training")
+logging.info("Successfully loaded and froze pretrained frontend")
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
@@ -447,11 +447,11 @@ def set_rng_state(state):
         torch.set_rng_state(cpu_state)
 
     # Restore NumPy RNG state
-    if 'numpy' in state and state['numpy'] is not None:
-        np.random.set_state(state['numpy'])
+        if 'numpy' in state and state['numpy'] is not None:
+            np.random.set_state(state['numpy'])
 
     # Restore CUDA RNG state
-    if torch.cuda.is_available() and 'cuda' in state and state['cuda'] is not None:
+        if torch.cuda.is_available() and 'cuda' in state and state['cuda'] is not None:
         cuda_state = state['cuda']
         # Convert to proper ByteTensor class on CPU
         cuda_state = cuda_state.cpu().type(torch.ByteTensor)
@@ -461,16 +461,16 @@ def set_rng_state(state):
 def train_one_epoch():
     running_loss = 0.0
     e2e_model.train()
-
+    
     for batch_idx, (inputs, input_lengths, labels_flat, label_lengths) in enumerate(train_loader):
         # Print input shape for debugging
         logging.info(f"Batch {batch_idx+1} - Input shape: {inputs.shape}")
-
+        
         inputs = inputs.to(device)
         input_lengths = input_lengths.to(device)
         labels_flat = labels_flat.to(device)
         label_lengths = label_lengths.to(device)
-
+        
         optimizer.zero_grad(set_to_none=True)  
 
         try:
@@ -482,22 +482,22 @@ def train_one_epoch():
             optimizer.step()
             scheduler.step()
             running_loss += loss.item()
-
+            
             if batch_idx % 10 == 0:
                 logging.info(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
-
+            
             if batch_idx % 3 == 0:
                 gc.collect()
                 torch.cuda.empty_cache()
                 logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
-                
+            
         except Exception as e:
             logging.error(f"Error in training loop for batch {batch_idx}: {str(e)}") 
             logging.error(f"Error type: {type(e).__name__}")
             import traceback
             traceback_str = traceback.format_exc()
             logging.error(traceback_str)
-
+            
             print(f"Error in batch {batch_idx}: {str(e)}")
             print(f"--- Skipping Batch {batch_idx+1} due to error ---")
             # Ensure gradients are cleared if error happened after loss calculation but before optimizer step
@@ -520,7 +520,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     total_cer = 0
     sample_count = 0
     all_predictions = []
-
+    
     # Determine if we should print samples in this epoch
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
     max_samples_to_print = 10
@@ -569,9 +569,9 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                         score = float(hyp.score)
                         logging.info(f"Found beam hypothesis for item {b+1} with score {score:.4f}")
                         pred_indices = hyp.yseq.cpu().numpy()
-                    
-                    if len(pred_indices) == 0:
-                        logging.info("WARNING: Prediction sequence is empty!")
+                        
+                        if len(pred_indices) == 0:
+                            logging.info("WARNING: Prediction sequence is empty!")
                     
                     # Get target indices
                     start_idx = sum(label_lengths[:b].cpu().tolist()) if b > 0 else 0
@@ -826,7 +826,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             }, checkpoint_path)
             print(f"Checkpoint saved to {checkpoint_path}")
             logging.info(f"Saved checkpoint to {checkpoint_path}")
-            
+        
             # Force synchronize CUDA operations and clear memory after saving
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
