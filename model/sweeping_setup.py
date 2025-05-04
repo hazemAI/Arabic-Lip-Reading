@@ -14,10 +14,10 @@ sweep_config = {
         # Optimizer & scheduler
         'initial_lr': {'values': [1e-3, 3e-4]},
         'warmup_epochs': {'values': [0, 4, 8]},
-        'total_epochs': {'values': [60, 80, 100]},
+        'total_epochs': {'values': [50]},
 
         # CTC/Attention loss weighting
-        'ctc_weight': {'values': [0.0, 0.1, 0.2, 0.3]},
+        'ctc_weight': {'values': [0.1, 0.2, 0.3]},
         'label_smoothing': {'values': [0.1, 0.2]},
 
         # Temporal encoder choice and config
@@ -61,6 +61,6 @@ def train():
 
 if __name__ == '__main__':
     # Create the sweep in your project (will return sweep_id)
-    sweep_id = wandb.sweep(sweep_config, project='arabic-lipreading-avsr')
+    sweep_id = wandb.sweep(sweep_config, project='arabic-lipreading-vsr')
     # Launch sweep agent to run train() across parameter combinations
     wandb.agent(sweep_id, function=train, count=40) 

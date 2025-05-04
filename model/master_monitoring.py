@@ -338,7 +338,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.1,
+    label_smoothing=0.2,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
@@ -347,7 +347,7 @@ e2e_model = E2EAVSR(
 # Training parameters
 initial_lr = 3e-4
 total_epochs = 80
-warmup_epochs = 8
+warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
 optimizer = optim.AdamW(

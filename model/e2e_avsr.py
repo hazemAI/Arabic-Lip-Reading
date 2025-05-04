@@ -32,7 +32,7 @@ class E2EAVSR(BaseE2E):
         enc_options,
         dec_options,
         ctc_weight=0.3,
-        label_smoothing=0.1,
+        label_smoothing=0.2,
         beam_size=20,
         length_bonus_weight=0.0,
     ):

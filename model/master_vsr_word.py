@@ -13,13 +13,11 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from encoders.encoder_models_pretrained import Lipreading
-from espnet.transformer.mask import subsequent_mask
-from utils import *
+from utils_word import *
 import logging
 from datetime import datetime
 import traceback
 from e2e_avsr import E2EAVSR
-import kornia.augmentation as K
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -59,90 +57,25 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # %%
 def extract_label(file):
-    label = []
-    diacritics = {
-        '\u064B',  # Fathatan
-        '\u064C',  # Dammatan
-        '\u064D',  # Kasratan
-        '\u064E',  # Fatha
-        '\u064F',  # Damma
-        '\u0650',  # Kasra
-        '\u0651',  # Shadda
-        '\u0652',  # Sukun
-        '\u06E2',  # Small High meem
-    }
-
+    """
+    Word-level label extraction: read a CSV file and return the list of words.
+    """
     sentence = pd.read_csv(file)
-    for word in sentence.word:
-        for char in word:
-            if char not in diacritics:
-                label.append(char)
-            else:
-                label[-1] += char
-
-    return label
-
-classes = set()
-for i in os.listdir('../Dataset/Csv (with Diacritics)'):
-    file = '../Dataset/Csv (with Diacritics)/' + i
-    label = extract_label(file)
-    classes.update(label)
+    return sentence['word'].tolist()
 
 mapped_classes = {}
-for i, c in enumerate(sorted(classes, reverse=True), 1):
-    mapped_classes[c] = i
-
+with open('word_frequencies_from_csv_5920.txt', 'r', encoding='utf-8') as f:
+    # Each line is 'word: frequency'
+    for idx, line in enumerate(f, start=1):
+        word, _ = line.strip().split(': ')
+        mapped_classes[word] = idx
+print(f"Loaded {len(mapped_classes)} word tokens")
 print(mapped_classes)
-
 # %% [markdown]
 # ## 3.2. Video Dataset Class
+
 # %%
-# Video augmentation constants and transforms
-MEAN = 0.41923218965530395
-STD  = 0.13392585515975952
-
-# Video augmentation class using Kornia VideoSequential with assertions
-class VideoAugmentation:
-    def __init__(self, is_train=True, crop_size=(88, 88), p_flip=0.5, max_rotation=5.0):
-        if is_train:
-            self.aug = K.VideoSequential(
-                K.RandomCrop(crop_size, p=1.0),
-                K.RandomHorizontalFlip(p=p_flip),
-                K.RandomRotation(max_rotation, p=1.0),
-                data_format="BCTHW",
-                same_on_frame=True,
-            )
-        else:
-            self.aug = K.VideoSequential(
-                K.CenterCrop(crop_size, p=1.0),
-                data_format="BCTHW",
-                same_on_frame=True,
-            )
-        self.crop_size = crop_size
-
-    def __call__(self, pil_frames):
-        # Convert list of PIL images to tensor sequence
-        frame_tensors = [transforms.ToTensor()(img) for img in pil_frames]
-        video = torch.stack(frame_tensors, dim=0)      # (T, C, H, W)
-        video = video.permute(1, 0, 2, 3)              # (C, T, H, W)
-        video_batch = video.unsqueeze(0)               # (1, C, T, H, W)
-        # Apply augmentations
-        augmented = self.aug(video_batch)
-        augmented = augmented.squeeze(0)               # (C, T, H, W)
-        # Assertions for shape and validity
-        C, T, H, W = augmented.shape
-        assert C == 1, f"Expected channel=1, got {C}"
-        assert (H, W) == self.crop_size, f"Expected spatial size {self.crop_size}, got {(H,W)}"
-        assert not torch.isnan(augmented).any(), "NaNs in augmented clip!"
-        assert not torch.isinf(augmented).any(), "Infs in augmented clip!"
-        # Normalize channels
-        augmented = (augmented - MEAN) / STD
-        return augmented
-
-# Instantiate augmenters for datasets
-train_transform = VideoAugmentation(is_train=True)
-val_transform   = VideoAugmentation(is_train=False)
-
+# Defining the video dataset class
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, video_paths, label_paths, transform=None):
         self.video_paths = video_paths
@@ -174,24 +107,24 @@ class VideoDataset(torch.utils.data.Dataset):
                 frames.append(frame_pil)
 
         if self.transform is not None:
-            # Apply video-level transformation
-            video = self.transform(frames)
-        else:
-            # Fallback: per-frame ToTensor + Normalize
-            frame_tensors = []
-            for img in frames:
-                t = transforms.ToTensor()(img)
-                t = transforms.Normalize(mean=[MEAN], std=[STD])(t)
-                frame_tensors.append(t)
-            video = torch.stack(frame_tensors).permute(1, 0, 2, 3)
-        return video
+            frames = [self.transform(frame) for frame in frames] 
+        frames = torch.stack(frames).permute(1, 0, 2, 3)
+        return frames
+
+# Defining data augmentation transforms for train, validation, and test
+data_transforms = transforms.Compose([
+    # transforms.CenterCrop(88),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=0.419232189655303955078125, std=0.133925855159759521484375),
+])
 
 # %% [markdown]
 # ## 3.3. Load the dataset
 
 # %%
-videos_dir = "../Dataset/Preprocessed_Video"
-labels_dir = "../Dataset/Csv (with Diacritics)"
+# Load videos and labels
+videos_dir = "D:\_hazem\Graduation Project\Arabic-Lip-Reading-testing-public\Dataset\Preprocessed_Video"
+labels_dir = "D:\_hazem\Graduation Project\Arabic-Lip-Reading-testing-public\Dataset\Csv"
 videos, labels = [], []
 file_names = [file_name[:-4] for file_name in os.listdir(videos_dir)]
 for file_name in file_names:
@@ -203,17 +136,17 @@ for file_name in file_names:
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1954/2004, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/50, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1980/2004, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/24, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
 
 # %%
 # Defining the video dataloaders (train, validation, test)
-train_dataset = VideoDataset(X_train, y_train, transform=train_transform)
-val_dataset   = VideoDataset(X_val, y_val, transform=val_transform)
-test_dataset  = VideoDataset(X_test, y_test, transform=val_transform)
+train_dataset = VideoDataset(X_train, y_train, transform=data_transforms)
+val_dataset = VideoDataset(X_val, y_val, transform=data_transforms)
+test_dataset = VideoDataset(X_test, y_test, transform=data_transforms)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
 val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
@@ -229,10 +162,10 @@ eos_token_idx = base_vocab_size + 1  # This places EOS after SOS
 full_vocab_size = base_vocab_size + 2  # +2 for SOS and EOS tokens
 
 # Build reverse mapping for decoding
-idx2char = {v: k for k, v in mapped_classes.items()}
-idx2char[0] = ""  # Blank token for CTC
-idx2char[sos_token_idx] = "<sos>"  # SOS token
-idx2char[eos_token_idx] = "<eos>"  # EOS token
+idx2token = {v: k for k, v in mapped_classes.items()}
+idx2token[0] = ""  # Blank token for CTC
+idx2token[sos_token_idx] = "<sos>"  # SOS token
+idx2token[eos_token_idx] = "<eos>"  # EOS token
 print(f"Total vocabulary size: {full_vocab_size}")
 print(f"SOS token index: {sos_token_idx}")
 print(f"EOS token index: {eos_token_idx}")
@@ -248,16 +181,16 @@ densetcn_options = {
     'growth_rate_set': [96, 96, 96, 96],        # Growth rate for each block
     'reduced_size': 256,                        # Reduced size between blocks
     'kernel_size_set': [3, 5, 7],               # Kernel sizes for multi-scale processing
-    'dilation_size_set': [1, 2],                # Dilation rates for increasing receptive field
+    'dilation_size_set': [1, 2, 4, 8],          # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
     'dropout': 0.1,
-    'hidden_dim': 256,
+    'hidden_dim': 512,  # hidden dimension for DenseTCN to match adapter output
 }
 
 # MSTCN configuration
 mstcn_options = {
     'tcn_type': 'multiscale',
-    'hidden_dim': 256,
+    'hidden_dim': 512,
     'num_channels': [96, 96, 96, 96],           # 4 layers with N channels each (divisible by 3)
     'kernel_size': [3, 5, 7],                   
     'dropout': 0.1,
@@ -360,7 +293,7 @@ e2e_model = E2EAVSR(
     encoder_type=TEMPORAL_ENCODER,
     ctc_vocab_size=base_vocab_size,
     dec_vocab_size=full_vocab_size,
-    token_list=[idx2char[i] for i in range(full_vocab_size)],
+    token_list=[idx2token[i] for i in range(full_vocab_size)],
     sos=sos_token_idx,
     eos=eos_token_idx,
     pad=0,
@@ -382,7 +315,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.2,
+    label_smoothing=0.25,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
@@ -448,30 +381,29 @@ def set_rng_state(state):
         torch.set_rng_state(cpu_state)
 
     # Restore NumPy RNG state
-        if 'numpy' in state and state['numpy'] is not None:
-            np.random.set_state(state['numpy'])
+    if 'numpy' in state and state['numpy'] is not None:
+        np.random.set_state(state['numpy'])
 
     # Restore CUDA RNG state
-        if torch.cuda.is_available() and 'cuda' in state and state['cuda'] is not None:
-            cuda_state = state['cuda']
-            # Convert to proper ByteTensor class on CPU
-            cuda_state = cuda_state.cpu().type(torch.ByteTensor)
-            torch.cuda.set_rng_state(cuda_state)
-
+    if torch.cuda.is_available() and 'cuda' in state and state['cuda'] is not None:
+        cuda_state = state['cuda']
+        # Convert to proper ByteTensor class on CPU
+        cuda_state = cuda_state.cpu().type(torch.ByteTensor)
+        torch.cuda.set_rng_state(cuda_state)
 
 def train_one_epoch():
     running_loss = 0.0
     e2e_model.train()
-    
+
     for batch_idx, (inputs, input_lengths, labels_flat, label_lengths) in enumerate(train_loader):
         # Print input shape for debugging
         logging.info(f"Batch {batch_idx+1} - Input shape: {inputs.shape}")
-        
+
         inputs = inputs.to(device)
         input_lengths = input_lengths.to(device)
         labels_flat = labels_flat.to(device)
         label_lengths = label_lengths.to(device)
-        
+
         optimizer.zero_grad(set_to_none=True)  
 
         try:
@@ -483,22 +415,22 @@ def train_one_epoch():
             optimizer.step()
             scheduler.step()
             running_loss += loss.item()
-            
+
             if batch_idx % 10 == 0:
                 logging.info(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
-            
+
             if batch_idx % 3 == 0:
                 gc.collect()
                 torch.cuda.empty_cache()
                 logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
-            
+                
         except Exception as e:
             logging.error(f"Error in training loop for batch {batch_idx}: {str(e)}") 
             logging.error(f"Error type: {type(e).__name__}")
             import traceback
             traceback_str = traceback.format_exc()
             logging.error(traceback_str)
-            
+
             print(f"Error in batch {batch_idx}: {str(e)}")
             print(f"--- Skipping Batch {batch_idx+1} due to error ---")
             # Ensure gradients are cleared if error happened after loss calculation but before optimizer step
@@ -518,10 +450,10 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     e2e_model.eval()
 
     # Track statistics
-    total_cer = 0
+    total_wer = 0
     sample_count = 0
     all_predictions = []
-    
+
     # Determine if we should print samples in this epoch
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
     max_samples_to_print = 10
@@ -570,9 +502,9 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                         score = float(hyp.score)
                         logging.info(f"Found beam hypothesis for item {b+1} with score {score:.4f}")
                         pred_indices = hyp.yseq.cpu().numpy()
-                        
-                        if len(pred_indices) == 0:
-                            logging.info("WARNING: Prediction sequence is empty!")
+                    
+                    if len(pred_indices) == 0:
+                        logging.info("WARNING: Prediction sequence is empty!")
                     
                     # Get target indices
                     start_idx = sum(label_lengths[:b].cpu().tolist()) if b > 0 else 0
@@ -584,21 +516,21 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                     logging.info(f"Debug - Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
                     
                     # Convert indices to text
-                    pred_text = indices_to_text(pred_indices, idx2char)
-                    target_text = indices_to_text(target_idx, idx2char)
+                    pred_text = indices_to_text(pred_indices, idx2token)
+                    target_text = indices_to_text(target_idx, idx2token)
                     
-                    # Compute CER and edit distance on token indices
-                    cer, edit_dist = compute_cer(target_idx.tolist(), pred_indices.tolist())
+                    # Compute WER and edit distance on token indices
+                    wer, edit_dist = compute_wer(target_idx.tolist(), pred_indices.tolist())
                     
                     # Update statistics
-                    total_cer += cer
+                    total_wer += wer
                     
                     # Store prediction details
                     all_predictions.append({
                         'sample_id': sample_count,
                         'pred_text': pred_text,
                         'target_text': target_text,
-                        'cer': cer,
+                        'wer': wer,
                         'edit_distance': edit_dist,
                     })
                     
@@ -615,7 +547,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                         logging.info(f"Target indices: {target_idx}")
                         
                     logging.info(f"Edit distance: {edit_dist}")
-                    logging.info(f"CER: {cer:.4f}")
+                    logging.info(f"WER: {wer:.4f}")
                     logging.info("-" * 50)
                     
                     # Print to console if this is a sample we should show
@@ -630,7 +562,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                             print("Target text: [Contains characters that can't be displayed in console]")
                             
                         print(f"Edit distance: {edit_dist}")
-                        print(f"CER: {cer:.4f}")
+                        print(f"WER: {wer:.4f}")
                         print("-" * 50)
 
                 # Clean up tensors
@@ -649,19 +581,19 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
         
         # Write summary statistics
         n_samples = len(data_loader.dataset)
-        avg_cer = total_cer / n_samples
+        avg_wer = total_wer / n_samples
         
         # Always print summary statistics to console
         print("\n=== Summary Statistics ===")
         print(f"Total samples: {n_samples}")
-        print(f"Average CER: {avg_cer:.4f}")
+        print(f"Average WER: {avg_wer:.4f}")
         
         # Log summary statistics as well
         logging.info("\n=== Summary Statistics ===")
         logging.info(f"Total samples: {n_samples}")
-        logging.info(f"Average CER: {avg_cer:.4f}")
+        logging.info(f"Average WER: {avg_wer:.4f}")
 
-    return avg_cer
+    return avg_wer
 
 # --------------------------------------------------------------------------
 def evaluate_loss(data_loader):
@@ -754,7 +686,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
                 except Exception as e:
                     print(f"Warning: Could not restore RNG state: {e}. Continuing with current RNG state.")
                     logging.warning(f"Could not restore RNG state: {e}")
-                
+            
             print(f"Checkpoint loaded successfully. Resuming from epoch {start_epoch}")
             logging.info(f"Checkpoint loaded successfully. Resuming from epoch {start_epoch}")
         
@@ -789,8 +721,8 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         print(f"Epoch {epoch + 1}/{total_epochs} - Evaluating...")
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
-        # Then compute decoding metrics (CER) via beam search
-        val_cer = evaluate_model(val_loader, epoch=epoch)
+        # Then compute decoding metrics (WER) via beam search
+        val_wer = evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
         if torch.cuda.is_available():
@@ -799,16 +731,14 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         
         logging.info(
             f"Epoch {epoch + 1}/{total_epochs}, Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val CER: {val_cer:.4f}"
+            f"Val Loss: {val_loss:.4f}, Val WER: {val_wer:.4f}"
         )
         
         # Print summary every epoch to console
         print(
             f"Epoch {epoch + 1}/{total_epochs} - Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}, Val CER: {val_cer:.4f}"
+            f"Val Loss: {val_loss:.4f}, Val WER: {val_wer:.4f}"
         )
-        
-        
         
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
