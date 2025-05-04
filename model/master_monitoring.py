@@ -223,15 +223,16 @@ mstcn_options = {
 
 # Conformer configuration
 conformer_options = {
-    'attention_dim': 256,
-    'attention_heads': 4,
-    'linear_units': 1024,
-    'num_blocks': 2,
+    'attention_dim': 512,
+    'attention_heads': 8,
+    'linear_units': 2048,
+    'num_blocks': 8,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
     'cnn_module_kernel': 31
 }
+
 
 # Choose temporal encoder type: 'densetcn', 'mstcn', or 'conformer'
 TEMPORAL_ENCODER = 'conformer'
@@ -326,10 +327,10 @@ e2e_model = E2EAVSR(
         'hidden_dim': e2e_hidden_dim,
     },
     dec_options={
-        'attention_dim': 256,
-        'attention_heads': 4,
-        'linear_units': 1024,
-        'num_blocks': 2,
+        'attention_dim': 512,
+        'attention_heads': 8,
+        'linear_units': 2048,
+        'num_blocks': 4,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
         'self_attention_dropout_rate': 0.1,

@@ -267,10 +267,10 @@ mstcn_options = {
 
 # Conformer configuration
 conformer_options = {
-    'attention_dim': 256,
+    'attention_dim': 512,
     'attention_heads': 4,
-    'linear_units': 1024,
-    'num_blocks': 2,
+    'linear_units': 2048,
+    'num_blocks': 8,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
@@ -334,10 +334,10 @@ if TRAIN_FRONTEND:
     print("Frontend parameters will be updated during training")
     logging.info("Frontend parameters will be updated during training")
 else:
-for param in model.visual_frontend.parameters():
-    param.requires_grad = False
-print("Frontend frozen - parameters will not be updated during training")
-logging.info("Successfully loaded and froze pretrained frontend")
+    for param in model.visual_frontend.parameters():
+        param.requires_grad = False
+    print("Frontend frozen - parameters will not be updated during training")
+    logging.info("Successfully loaded and froze pretrained frontend")
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
@@ -452,10 +452,10 @@ def set_rng_state(state):
 
     # Restore CUDA RNG state
         if torch.cuda.is_available() and 'cuda' in state and state['cuda'] is not None:
-        cuda_state = state['cuda']
-        # Convert to proper ByteTensor class on CPU
-        cuda_state = cuda_state.cpu().type(torch.ByteTensor)
-        torch.cuda.set_rng_state(cuda_state)
+            cuda_state = state['cuda']
+            # Convert to proper ByteTensor class on CPU
+            cuda_state = cuda_state.cpu().type(torch.ByteTensor)
+            torch.cuda.set_rng_state(cuda_state)
 
 
 def train_one_epoch():
