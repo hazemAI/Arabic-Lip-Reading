@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from encoders.encoder_models_pretrained import Lipreading
-from espnet.transformer.mask import subsequent_mask
 from utils import *
 import logging
 from datetime import datetime
