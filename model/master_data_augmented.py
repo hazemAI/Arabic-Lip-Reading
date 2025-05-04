@@ -3,16 +3,14 @@
 
 # %%
 import torch, os, cv2, gc
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models_pretrained import Lipreading
+from encoders.encoder_models import Lipreading
 from utils import *
 import logging
 from datetime import datetime
@@ -266,16 +264,15 @@ mstcn_options = {
 
 # Conformer configuration
 conformer_options = {
-    'attention_dim': 512,
-    'attention_heads': 8,
-    'linear_units': 2048,
-    'num_blocks': 8,
+    'attention_dim': 256,
+    'attention_heads': 4,
+    'linear_units': 1024,
+    'num_blocks': 2,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
     'cnn_module_kernel': 31
 }
-
 
 # Choose temporal encoder type: 'densetcn', 'mstcn', or 'conformer'
 TEMPORAL_ENCODER = 'conformer'
@@ -381,7 +378,7 @@ e2e_model = E2EAVSR(
         'normalize_before': True,
     },
     ctc_weight=0.3,
-    label_smoothing=0.2,
+    label_smoothing=0.1,
     beam_size=20,
     length_bonus_weight=0.0
 ).to(device)
@@ -390,7 +387,7 @@ e2e_model = E2EAVSR(
 # Training parameters
 initial_lr = 3e-4
 total_epochs = 80
-warmup_epochs = 5
+warmup_epochs = 8
 
 # Initialize AdamW optimizer with weight decay on the E2E model
 optimizer = optim.AdamW(

@@ -1,7 +1,6 @@
 import torch
 import editdistance
 import math
-import logging
 
 def pad_packed_collate(batch):
     """Pads data and labels with different lengths in the same batch

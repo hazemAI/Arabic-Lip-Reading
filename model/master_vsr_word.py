@@ -3,16 +3,14 @@
 
 # %%
 import torch, os, cv2, gc
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models_pretrained import Lipreading
+from encoders.encoder_models import Lipreading
 from utils_word import *
 import logging
 from datetime import datetime
@@ -324,7 +322,7 @@ e2e_model = E2EAVSR(
 # Training parameters
 initial_lr = 3e-4
 total_epochs = 80
-warmup_epochs = 5
+warmup_epochs = 8
 
 # Initialize AdamW optimizer with weight decay on the E2E model
 optimizer = optim.AdamW(

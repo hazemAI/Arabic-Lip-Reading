@@ -6,7 +6,7 @@
 
 import torch
 
-from encoders.encoder_models_pretrained import VisualFrontend
+from encoders.encoder_models import VisualFrontend
 from espnet.ctc import CTC
 from espnet.encoder.conformer_encoder import ConformerEncoder
 from espnet.decoder.transformer_decoder import TransformerDecoder

@@ -1,7 +1,6 @@
 import torch
 import editdistance
 import math
-import logging
 
 
 def pad_packed_collate(batch):

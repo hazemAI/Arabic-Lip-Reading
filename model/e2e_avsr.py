@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from encoders.encoder_models_pretrained import Lipreading
+from encoders.encoder_models import Lipreading
 from espnet.decoder.transformer_decoder import TransformerDecoder
 from espnet.transformer.mask import subsequent_mask
 from espnet.transformer.add_sos_eos import add_sos_eos
-from espnet.batch_beam_search import BatchBeamSearch
+from espnet.batch_beam_search_edited import BatchBeamSearch
 from espnet.scorers.length_bonus import LengthBonus
 from espnet.transformer.label_smoothing_loss import LabelSmoothingLoss
 from espnet.nets_utils import make_non_pad_mask
@@ -32,7 +32,7 @@ class E2EAVSR(BaseE2E):
         enc_options,
         dec_options,
         ctc_weight=0.3,
-        label_smoothing=0.2,
+        label_smoothing=0.1,
         beam_size=20,
         length_bonus_weight=0.0,
     ):

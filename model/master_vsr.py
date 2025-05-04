@@ -3,16 +3,14 @@
 
 # %%
 import torch, os, cv2, gc
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 from torchvision import transforms
 from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models_pretrained import Lipreading
+from encoders.encoder_models import Lipreading
 from utils import *
 import logging
 from datetime import datetime
