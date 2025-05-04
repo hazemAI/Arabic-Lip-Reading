@@ -5,7 +5,7 @@ from encoders.encoder_models import Lipreading
 from espnet.decoder.transformer_decoder import TransformerDecoder
 from espnet.transformer.mask import subsequent_mask
 from espnet.transformer.add_sos_eos import add_sos_eos
-from espnet.batch_beam_search_edited import BatchBeamSearch
+from espnet.batch_beam_search import BatchBeamSearch
 from espnet.scorers.length_bonus import LengthBonus
 from espnet.transformer.label_smoothing_loss import LabelSmoothingLoss
 from espnet.nets_utils import make_non_pad_mask
