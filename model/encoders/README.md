@@ -7,7 +7,7 @@ This directory contains the encoder components for the Arabic lip reading system
 ```text
 encoders/
 ├── models/                          # Core encoder architectures (ResNet, TCN, DenseTCN, SE module)
-├── encoder_models.py    # High-level encoder classes (DenseTCN, MultiscaleTCN, VisualFrontend, Lipreading)
+├── encoder_models.py    # High-level encoder tokens (DenseTCN, MultiscaleTCN, VisualFrontend, Lipreading)
 ├── pretrained_visual_frontend.pth # Pretrained weights for the VisualFrontend (3D CNN + ResNet)
 └── README.md                        # This file
 ```

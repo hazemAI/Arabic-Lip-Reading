@@ -48,7 +48,7 @@ class E2EVSR(BaseE2E):
             densetcn_options=dense_opt,
             conformer_options=conf_opt,
             hidden_dim=enc_options['hidden_dim'],
-            num_classes=ctc_vocab_size,
+            num_tokens=ctc_vocab_size,
             relu_type=enc_options.get('relu_type', 'swish'),
         )
         self.frontend = lip_model.visual_frontend

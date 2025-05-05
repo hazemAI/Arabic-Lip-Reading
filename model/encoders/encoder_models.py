@@ -17,7 +17,7 @@ def _sequence_batch(x, lengths, B):
 
 
 class DenseTCN(nn.Module):
-    def __init__(self, block_config, growth_rate_set, input_size, reduced_size, num_classes,
+    def __init__(self, block_config, growth_rate_set, input_size, reduced_size, num_tokens,
                   kernel_size_set, dilation_size_set, 
                   dropout, relu_type,
                   squeeze_excitation=False,
@@ -30,7 +30,7 @@ class DenseTCN(nn.Module):
                                           dropout=dropout, relu_type=relu_type,
                                           squeeze_excitation=squeeze_excitation,
                                           )
-        self.encoder_output = nn.Linear(num_features, num_classes)
+        self.encoder_output = nn.Linear(num_features, num_tokens)
         # Project TCN features into hidden_dim for decoder
         self.hidden_proj = nn.Linear(num_features, input_size)
         
@@ -48,20 +48,20 @@ class DenseTCN(nn.Module):
         out = out.transpose(1, 2)  # Now (B, T, C)
         
         # Apply CTC head and project hidden features for decoder
-        logits = self.encoder_output(out)      # (B, T, num_classes)
+        logits = self.encoder_output(out)      # (B, T, num_tokens)
         hidden_feats = self.hidden_proj(out)   # (B, T, hidden_dim)
         return hidden_feats, logits
 
 
 class MultiscaleTCN(nn.Module):
-    def __init__(self, input_size, num_channels, num_classes, tcn_options, dropout=0.2, relu_type='relu', dwpw=False):
+    def __init__(self, input_size, num_channels, num_tokens, tcn_options, dropout=0.2, relu_type='relu', dwpw=False):
         super(MultiscaleTCN, self).__init__()
         self.kernel_sizes = tcn_options['kernel_size']
         self.num_kernels = len(self.kernel_sizes)
 
         self.num_channels = num_channels
         self.input_size = input_size
-        self.num_classes = num_classes
+        self.num_tokens = num_tokens
         self.dropout = dropout
         self.relu_type = relu_type
         self.dwpw = dwpw
@@ -75,7 +75,7 @@ class MultiscaleTCN(nn.Module):
             dwpw=dwpw
         )
         # Final output layer - takes output from all branches (num_channels[-1])
-        self.encoder_output = nn.Linear(num_channels[-1], num_classes)
+        self.encoder_output = nn.Linear(num_channels[-1], num_tokens)
         # Project TCN features into hidden_dim for decoder
         self.hidden_proj = nn.Linear(num_channels[-1], input_size)
 
@@ -97,7 +97,7 @@ class MultiscaleTCN(nn.Module):
         seq_out = self.consensus_func(tcn_out, lengths, B)
         
         # Apply CTC head and project hidden features for decoder
-        ctc_logits = self.encoder_output(seq_out)    # (B, T, num_classes)
+        ctc_logits = self.encoder_output(seq_out)    # (B, T, num_tokens)
         hidden_feats = self.hidden_proj(seq_out)     # (B, T, hidden_dim)
         return hidden_feats, ctc_logits
 
@@ -151,7 +151,7 @@ class Lipreading(nn.Module):
                  modality='video',
                  hidden_dim=256,
                  backbone_type='resnet',
-                 num_classes=226,
+                 num_tokens=226,
                  relu_type='swish',
                  tcn_options={},
                  densetcn_options={},
@@ -183,7 +183,7 @@ class Lipreading(nn.Module):
                 self.encoder = MultiscaleTCN(
                     input_size=hidden_dim,
                     num_channels=num_channels,
-                    num_classes=num_classes,
+                    num_tokens=num_tokens,
                     tcn_options=tcn_options,
                     dropout=tcn_options.get('dropout', 0.2),
                     relu_type=relu_type,
@@ -200,7 +200,7 @@ class Lipreading(nn.Module):
                 growth_rate_set=densetcn_options['growth_rate_set'],
                 input_size=hidden_dim,
                 reduced_size=densetcn_options['reduced_size'],
-                num_classes=num_classes,
+                num_tokens=num_tokens,
                 kernel_size_set=densetcn_options['kernel_size_set'],
                 dilation_size_set=densetcn_options['dilation_size_set'],
                 dropout=densetcn_options['dropout'],
@@ -234,11 +234,11 @@ class Lipreading(nn.Module):
                 cnn_module_kernel=conformer_options.get('cnn_module_kernel', 31),
             )
             # Add output projection for classification (per time step)
-            self.output_layer = nn.Linear(hidden_dim, num_classes)
+            self.output_layer = nn.Linear(hidden_dim, num_tokens)
 
         # Create an ESPnet-compatible CTC module for beam search scoring
         self.ctc_module = ESPnetCTC(
-            odim=num_classes,
+            odim=num_tokens,
             eprojs=hidden_dim,
             dropout_rate=0.1,
             reduce=True,

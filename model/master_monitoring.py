@@ -79,18 +79,18 @@ def extract_label(file):
 
     return label
 
-classes = set()
+tokens = set()
 for i in os.listdir('../Dataset/Csv (with Diacritics)'):
     file = '../Dataset/Csv (with Diacritics)/' + i
     label = extract_label(file)
-    classes.update(label)
+    tokens.update(label)
 
-mapped_classes = {}
-for i, c in enumerate(sorted(classes, reverse=True), 1):
-    mapped_classes[c] = i
+mapped_tokens = {}
+for i, c in enumerate(sorted(tokens, reverse=True), 1):
+    mapped_tokens[c] = i
 
-print(mapped_classes)
-logging.info(mapped_classes)
+print(mapped_tokens)
+logging.info(mapped_tokens)
 
 # %% [markdown]
 # ## 3.2. Video Dataset Class
@@ -110,7 +110,7 @@ class VideoDataset(torch.utils.data.Dataset):
         video_path = self.video_paths[index]
         label_path = self.label_paths[index]
         frames = self.load_frames(video_path=video_path)
-        label = torch.tensor(list(map(lambda x: mapped_classes[x], extract_label(label_path))))
+        label = torch.tensor(list(map(lambda x: mapped_tokens[x], extract_label(label_path))))
         input_length = torch.tensor(frames.size(1), dtype=torch.long)
         label_length = torch.tensor(len(label), dtype=torch.long)
         return frames, input_length, label, label_length
@@ -177,13 +177,13 @@ test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=
 
 # %%
 # Build vocabulary setup
-base_vocab_size = len(mapped_classes) + 1  # +1 for blank token (0)
+base_vocab_size = len(mapped_tokens) + 1  # +1 for blank token (0)
 sos_token_idx = base_vocab_size  # This places SOS after all normal tokens
 eos_token_idx = base_vocab_size + 1  # This places EOS after SOS
 full_vocab_size = base_vocab_size + 2  # +2 for SOS and EOS tokens
 
 # Build reverse mapping for decoding
-idx2char = {v: k for k, v in mapped_classes.items()}
+idx2char = {v: k for k, v in mapped_tokens.items()}
 idx2char[0] = ""  # Blank token for CTC
 idx2char[sos_token_idx] = "<sos>"  # SOS token
 idx2char[eos_token_idx] = "<eos>"  # EOS token
@@ -247,21 +247,21 @@ if TEMPORAL_ENCODER == 'densetcn':
     vt_encoder = Lipreading(
         densetcn_options=densetcn_options,
         hidden_dim=densetcn_options['hidden_dim'],
-        num_classes=base_vocab_size,
+        num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'mstcn':
     vt_encoder = Lipreading(
         tcn_options=mstcn_options,
         hidden_dim=mstcn_options['hidden_dim'],
-        num_classes=base_vocab_size,
+        num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'conformer':
     vt_encoder = Lipreading(
         conformer_options=conformer_options,
         hidden_dim=conformer_options['attention_dim'],
-        num_classes=base_vocab_size,
+        num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 else:

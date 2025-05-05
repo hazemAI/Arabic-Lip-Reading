@@ -188,7 +188,7 @@ class BasicBlock(nn.Module):
 
 ```python
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes=1000, relu_type='relu',
+    def __init__(self, block, layers, num_tokens=1000, relu_type='relu',
                  gamma_zero=False, avg_pool_downsample=False):
         # Implementation...
 ```
