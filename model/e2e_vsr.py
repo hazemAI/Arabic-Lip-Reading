@@ -14,7 +14,7 @@ from espnet.scorers.ctc import CTCPrefixScorer
 from espnet.ctc import CTC
 from torch.nn.utils.rnn import pad_sequence
 
-class E2EAVSR(BaseE2E):
+class E2EVSR(BaseE2E):
     """
     End-to-end AVSR system combining frontend, optional temporal encoder,
     CTC head, transformer decoder with label-smoothing, and beam search.
@@ -111,7 +111,7 @@ class E2EAVSR(BaseE2E):
 
     def forward(self, x, x_lengths, ys=None, ys_lengths=None):
         # Debug: trace shapes at each stage
-        logging.info(f"E2EAVSR.forward START -> x shape: {x.shape}, x_lengths: {x_lengths}")
+        logging.info(f"E2EVSR.forward START -> x shape: {x.shape}, x_lengths: {x_lengths}")
         """
         If ys is provided, run teacher-forcing training and return losses.
         Otherwise run beam search inference and return hypotheses.

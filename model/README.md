@@ -10,7 +10,7 @@ model/
 ├── espnet/             # ESPNet transformer and CTC components
 ├── Logs/               # Training and inference logs
 ├── master_vsr.ipynb    # Main VSR training and evaluation notebook
-├── e2e_avsr.py         # End-to-end audio-visual speech recognition script
+├── e2e_vsr.py         # End-to-end audio-visual speech recognition script
 └── utils.py            # Utility functions (collation, metrics, scheduler)
 ```
 
@@ -206,12 +206,12 @@ This Jupyter notebook implements the video-only speech recognition (VSR) pipelin
    ```
 2. Follow cells in order to configure paths, hyperparameters, and run each stage.
 
-## e2e_avsr.py - End-to-End AVSR Script
+## e2e_vsr.py - End-to-End AVSR Script
 
-This Python script provides a command-line interface for audio-visual speech recognition using the `E2EAVSR` class (inheriting from ESPNet's E2E ASR):
+This Python script provides a command-line interface for audio-visual speech recognition using the `E2EVSR` class (inheriting from ESPNet's E2E ASR):
 
 ```bash
-python e2e_avsr.py --help
+python e2e_vsr.py --help
 ```
 
 - **Training**: Use flags like `--train` to start model training with specified encoder, dataset paths, and hyperparameters.

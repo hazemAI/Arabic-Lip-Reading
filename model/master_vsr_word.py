@@ -15,7 +15,7 @@ from utils_word import *
 import logging
 from datetime import datetime
 import traceback
-from e2e_avsr import E2EAVSR
+from e2e_vsr import E2EVSR
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -69,6 +69,7 @@ with open('word_frequencies_from_csv_5920.txt', 'r', encoding='utf-8') as f:
         mapped_classes[word] = idx
 print(f"Loaded {len(mapped_classes)} word tokens")
 print(mapped_classes)
+logging.info(mapped_classes)
 # %% [markdown]
 # ## 3.2. Video Dataset Class
 
@@ -213,29 +214,29 @@ conformer_options = {
 TEMPORAL_ENCODER = 'conformer'
 
 # %% [markdown]
-# ## 4.2 Model Initialization and Pretrained Frontend
+# ## 4.2 Visual-Temporal Encoder Initialization and Pretrained Frontend
 
 # %%
-# Step 1: Initialize the model first
-print(f"Initializing model with {TEMPORAL_ENCODER} temporal encoder...")
-logging.info(f"Initializing model with {TEMPORAL_ENCODER} temporal encoder")
+# Initialize the visual-temporal encoder first
+print(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal encoder...")
+logging.info(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal encoder")
 
 if TEMPORAL_ENCODER == 'densetcn':
-    model = Lipreading(
+    vt_encoder = Lipreading(
         densetcn_options=densetcn_options,
         hidden_dim=densetcn_options['hidden_dim'],
         num_classes=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'mstcn':
-    model = Lipreading(
+    vt_encoder = Lipreading(
         tcn_options=mstcn_options,
         hidden_dim=mstcn_options['hidden_dim'],
         num_classes=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'conformer':
-    model = Lipreading(
+    vt_encoder = Lipreading(
         conformer_options=conformer_options,
         hidden_dim=conformer_options['attention_dim'],
         num_classes=base_vocab_size,
@@ -244,10 +245,10 @@ elif TEMPORAL_ENCODER == 'conformer':
 else:
     raise ValueError(f"Unknown temporal encoder type: {TEMPORAL_ENCODER}")
 
-print("Model initialized successfully.")
+print("Visual-Temporal encoder initialized successfully.")
 
-# Step 2: Load pretrained frontend weights
-print("\nStep 4.2: Loading pretrained frontend weights...")
+# Load pretrained frontend weights
+print("\nLoading pretrained frontend weights...")
 logging.info("Loading pretrained frontend weights")
 
 pretrained_path = 'encoders/pretrained_visual_frontend.pth'
@@ -255,7 +256,7 @@ pretrained_weights = torch.load(pretrained_path, map_location=device)
 print(f"Loaded pretrained weights from {pretrained_path}")
 
 # Load weights into frontend
-model.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=False)
+vt_encoder.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=False)
 print("Successfully loaded pretrained weights")
 
 # Flag to choose whether to fine-tune the frontend or freeze it
@@ -266,18 +267,19 @@ if TRAIN_FRONTEND:
     print("Frontend parameters will be updated during training")
     logging.info("Frontend parameters will be updated during training")
 else:
-    for param in model.visual_frontend.parameters():
+    for param in vt_encoder.visual_frontend.parameters():
         param.requires_grad = False
     print("Frontend frozen - parameters will not be updated during training")
     logging.info("Successfully loaded and froze pretrained frontend")
+
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
 
 # %%
-# Step 4.3: Initialize the E2EAVSR end-to-end model
-print("\nStep 4.3: Initializing E2EAVSR end-to-end model...")
-# Determine hidden_dim for E2EAVSR based on the chosen temporal encoder
+# Initialize the E2EVSR end-to-end model
+print("\nInitializing E2EVSR end-to-end model...")
+# Determine hidden_dim for E2EVSR based on the chosen temporal encoder
 if TEMPORAL_ENCODER == 'densetcn':
     e2e_hidden_dim = densetcn_options['hidden_dim']
 elif TEMPORAL_ENCODER == 'mstcn':
@@ -287,7 +289,7 @@ elif TEMPORAL_ENCODER == 'conformer':
 else:
     raise ValueError(f"Unknown TEMPORAL_ENCODER: {TEMPORAL_ENCODER}")
 
-e2e_model = E2EAVSR(
+e2e_model = E2EVSR(
     encoder_type=TEMPORAL_ENCODER,
     ctc_vocab_size=base_vocab_size,
     dec_vocab_size=full_vocab_size,
@@ -321,7 +323,7 @@ e2e_model = E2EAVSR(
 
 # Training parameters
 initial_lr = 3e-4
-total_epochs = 80
+total_epochs = 75
 warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
@@ -337,8 +339,8 @@ steps_per_epoch = len(train_loader)
 scheduler = WarmupCosineScheduler(optimizer, warmup_epochs, total_epochs, steps_per_epoch)
 
 print("Selected temporal encoder:", TEMPORAL_ENCODER)
-print(model)
 print(e2e_model)
+logging.info(repr(e2e_model))
 
 # %% [markdown]
 # # 5. Training and Evaluation
@@ -443,7 +445,7 @@ def train_one_epoch():
 
 def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     """
-    Evaluate the model on the given data loader using E2EAVSR's built-in beam search.
+    Evaluate the model on the given data loader using E2EVSR's built-in beam search.
     """
     e2e_model.eval()
 
@@ -456,7 +458,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
     max_samples_to_print = 10
 
-    # Use E2EAVSR's beam_search directly
+    # Use E2EVSR's beam_search directly
     bs = e2e_model.beam_search
 
     # Process all batches in the test loader
@@ -468,7 +470,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
             label_lengths = label_lengths.to(device)
             
             # Run raw encoder and unpack hidden features if tuple is returned
-            enc_out = model(inputs, input_lengths)
+            enc_out = vt_encoder(inputs, input_lengths)
             encoder_features = enc_out[0] if isinstance(enc_out, tuple) else enc_out
             
             # Set output_lengths to match the actual encoder output length
@@ -626,45 +628,16 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         try:
             checkpoint = torch.load(checkpoint_path, map_location=device)
             
-            # Check model architecture compatibility
-            model_state_dict = model.state_dict()
-            checkpoint_model_state_dict = checkpoint['model_state_dict']
-            if set(model_state_dict.keys()) != set(checkpoint_model_state_dict.keys()):
-                missing_keys = [k for k in model_state_dict.keys() if k not in checkpoint_model_state_dict]
-                unexpected_keys = [k for k in checkpoint_model_state_dict.keys() if k not in model_state_dict]
-                error_msg = "Model architecture mismatch detected!\n"
-                if missing_keys:
-                    error_msg += f"Missing keys in checkpoint: {missing_keys}\n"
-                if unexpected_keys:
-                    error_msg += f"Unexpected keys in checkpoint: {unexpected_keys}\n"
-                error_msg += "Cannot proceed with training due to incompatible architecture."
-                print(error_msg)
-                logging.error(error_msg)
-                raise RuntimeError("Model architecture mismatch. Training aborted to prevent corruption.")
+            # Load vt_encoder checkpoint non-strictly (ignoring mismatched keys)
+            vt_res = vt_encoder.load_state_dict(
+                checkpoint['vt_encoder_state_dict'], strict=False)
+            logging.info(f"Loaded vt_encoder checkpoint (non-strict): missing {vt_res.missing_keys}, unexpected {vt_res.unexpected_keys}")
             
-            # Load the state dict
-            model.load_state_dict(checkpoint_model_state_dict)
-            
-            # Check transformer decoder architecture compatibility
-            decoder_state_dict = e2e_model.state_dict()
-            checkpoint_decoder_state_dict = checkpoint['transformer_decoder_state_dict']
-            
-            if set(decoder_state_dict.keys()) != set(checkpoint_decoder_state_dict.keys()):
-                missing_keys = [k for k in decoder_state_dict.keys() if k not in checkpoint_decoder_state_dict]
-                unexpected_keys = [k for k in checkpoint_decoder_state_dict.keys() if k not in decoder_state_dict]
-                error_msg = "Transformer decoder architecture mismatch detected!\n"
-                if missing_keys:
-                    error_msg += f"Missing keys in checkpoint: {missing_keys}\n"
-                if unexpected_keys:
-                    error_msg += f"Unexpected keys in checkpoint: {unexpected_keys}\n"
-                error_msg += "Cannot proceed with training due to incompatible architecture."
-                print(error_msg)
-                logging.error(error_msg)
-                raise RuntimeError("Transformer decoder architecture mismatch. Training aborted to prevent corruption.")
-            
-            # Load the decoder state dict
-            e2e_model.load_state_dict(checkpoint_decoder_state_dict)
-            print("Successfully loaded checkpoint")
+            # Load E2E model checkpoint non-strictly (ignoring mismatched keys)
+            dec_res = e2e_model.load_state_dict(
+                checkpoint['e2e_model_state_dict'], strict=False)
+            logging.info(f"Loaded e2e_model checkpoint (non-strict): missing {dec_res.missing_keys}, unexpected {dec_res.unexpected_keys}")
+            print("Successfully loaded checkpoint (non-strict)")
             
             # Load optimizer state
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -745,8 +718,8 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             checkpoint_path = f'checkpoint_epoch_{epoch+1}.pth'
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'transformer_decoder_state_dict': e2e_model.state_dict(),
+                'vt_encoder_state_dict': vt_encoder.state_dict(),
+                'e2e_model_state_dict': e2e_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': val_loss,
                 'rng_state': rng_state,
@@ -765,8 +738,8 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             best_val_loss = val_loss
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'transformer_decoder_state_dict': e2e_model.state_dict(),
+                'vt_encoder_state_dict': vt_encoder.state_dict(),
+                'e2e_model_state_dict': e2e_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': val_loss,
                 'rng_state': rng_state,
