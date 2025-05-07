@@ -52,7 +52,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # # 3. Dataset preparation
 
 # %% [markdown]
-# ## 3.1. List of Classes
+# ## 3.1. List of tokens
 
 # %%
 def extract_label(file):

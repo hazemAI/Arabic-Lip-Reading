@@ -51,7 +51,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # # 3. Dataset preparation
 
 # %% [markdown]
-# ## 3.1. List of Classes
+# ## 3.1. List of tokens
 
 # %%
 def extract_label(file):
@@ -176,21 +176,21 @@ print(f"EOS token index: {eos_token_idx}")
 # %%
 # DenseTCN configuration (our default backbone)
 densetcn_options = {
-    'block_config': [2, 2, 2, 2],               # Number of layers in each dense block
-    'growth_rate_set': [96, 96, 96, 96],        # Growth rate for each block
+    'block_config': [3, 3, 3, 3],               # Number of layers in each dense block
+    'growth_rate_set': [192, 192, 192, 192],    # Growth rate for each block
     'reduced_size': 256,                        # Reduced size between blocks
     'kernel_size_set': [3, 5, 7],               # Kernel sizes for multi-scale processing
     'dilation_size_set': [1, 2, 4, 8],          # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
     'dropout': 0.1,
-    'hidden_dim': 512,  # hidden dimension for DenseTCN to match adapter output
+    'hidden_dim': 512,
 }
 
 # MSTCN configuration
 mstcn_options = {
     'tcn_type': 'multiscale',
     'hidden_dim': 512,
-    'num_channels': [96, 96, 96, 96],           # 4 layers with N channels each (divisible by 3)
+    'num_channels': [192, 192, 192, 192],       # 4 layers with N channels each (divisible by 3)
     'kernel_size': [3, 5, 7],                   
     'dropout': 0.1,
     'stride': 1,
@@ -202,7 +202,7 @@ conformer_options = {
     'attention_dim': 512,
     'attention_heads': 8,
     'linear_units': 2048,
-    'num_blocks': 8,
+    'num_blocks': 12,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
@@ -307,7 +307,7 @@ e2e_model = E2EVSR(
         'attention_dim': 512,
         'attention_heads': 8,
         'linear_units': 2048,
-        'num_blocks': 4,
+        'num_blocks': 6,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
         'self_attention_dropout_rate': 0.1,

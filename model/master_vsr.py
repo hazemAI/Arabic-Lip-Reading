@@ -16,6 +16,7 @@ import logging
 from datetime import datetime
 import traceback
 from e2e_vsr import E2EVSR
+from postprocess import *
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -51,7 +52,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # # 3. Dataset preparation
 
 # %% [markdown]
-# ## 3.1. List of Classes
+# ## 3.1. List of tokens
 
 # %%
 def extract_label(file):
@@ -79,8 +80,8 @@ def extract_label(file):
     return label
 
 tokens = set()
-for i in os.listdir('../Dataset/Csv (with Diacritics)'):
-    file = '../Dataset/Csv (with Diacritics)/' + i
+for i in os.listdir('../Dataset/Csv (without Diacritics)'):
+    file = '../Dataset/Csv (without Diacritics)/' + i
     label = extract_label(file)
     tokens.update(label)
 
@@ -140,16 +141,6 @@ data_transforms = transforms.Compose([
 # %% [markdown]
 # ## 3.3. Load the dataset
 
-# %%
-# Load videos and labels
-videos_dir = "../Dataset/Preprocessed_Video"
-labels_dir = "../Dataset/Csv (with Diacritics)"
-videos, labels = [], []
-file_names = [file_name[:-4] for file_name in os.listdir(videos_dir)]
-for file_name in file_names:
-    videos.append(os.path.join(videos_dir, file_name + ".mp4"))
-    labels.append(os.path.join(labels_dir, file_name + ".csv"))
-    
 # %% [markdown]
 # ## 3.4. Split the dataset
 
@@ -196,21 +187,21 @@ print(f"EOS token index: {eos_token_idx}")
 # %%
 # DenseTCN configuration (our default backbone)
 densetcn_options = {
-    'block_config': [2, 2, 2, 2],               # Number of layers in each dense block
-    'growth_rate_set': [96, 96, 96, 96],        # Growth rate for each block
+    'block_config': [3, 3, 3, 3],               # Number of layers in each dense block
+    'growth_rate_set': [192, 192, 192, 192],    # Growth rate for each block
     'reduced_size': 256,                        # Reduced size between blocks
     'kernel_size_set': [3, 5, 7],               # Kernel sizes for multi-scale processing
     'dilation_size_set': [1, 2, 4, 8],          # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
     'dropout': 0.1,
-    'hidden_dim': 512,  # hidden dimension for DenseTCN to match adapter output
+    'hidden_dim': 512,
 }
 
 # MSTCN configuration
 mstcn_options = {
     'tcn_type': 'multiscale',
     'hidden_dim': 512,
-    'num_channels': [96, 96, 96, 96],           # 4 layers with N channels each (divisible by 3)
+    'num_channels': [192, 192, 192, 192],       # 4 layers with N channels each (divisible by 3)
     'kernel_size': [3, 5, 7],                   
     'dropout': 0.1,
     'stride': 1,
@@ -222,7 +213,7 @@ conformer_options = {
     'attention_dim': 512,
     'attention_heads': 8,
     'linear_units': 2048,
-    'num_blocks': 8,
+    'num_blocks': 12,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
@@ -326,7 +317,7 @@ e2e_model = E2EVSR(
         'attention_dim': 512,
         'attention_heads': 8,
         'linear_units': 2048,
-        'num_blocks': 4,
+        'num_blocks': 6,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
         'self_attention_dropout_rate': 0.1,
@@ -335,7 +326,7 @@ e2e_model = E2EVSR(
     },
     ctc_weight=0.3,
     label_smoothing=0.2,
-    beam_size=20,
+    beam_size=10,
     length_bonus_weight=0.0
 ).to(device)
 
@@ -533,13 +524,16 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                     logging.info(f"Debug - Reference tokens ({len(target_idx)} tokens): {target_idx}")
                     logging.info(f"Debug - Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
                     
-                    # Convert indices to text
-                    pred_text = indices_to_text(pred_indices, idx2char)
+                    # apply only unsupervised cleaning
+                    ref_seq = target_idx.tolist()
+                    cleaned_seq = unsupervised_cleaning(pred_indices.tolist(), sos_token_idx, eos_token_idx)
+                    # compute CER and edit distance on cleaned sequence
+                    cer, edit_dist = compute_cer(ref_seq, cleaned_seq)
+                    pred_text = indices_to_text(cleaned_seq, idx2char)
+                    
                     target_text = indices_to_text(target_idx, idx2char)
                     
-                    # Compute CER and edit distance on token indices
-                    cer, edit_dist = compute_cer(target_idx.tolist(), pred_indices.tolist())
-                    
+                    # Log using the filtered best sequence
                     # Update statistics
                     total_cer += cer
                     
@@ -699,6 +693,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
     for epoch in range(start_epoch, total_epochs):
         print(f"Epoch {epoch + 1}/{total_epochs} - Training...")
         epoch_loss = train_one_epoch()
+        evaluate_model(train_loader, ctc_weight=ctc_weight, epoch=None, print_samples=True)
         
         gc.collect()
         if torch.cuda.is_available():
