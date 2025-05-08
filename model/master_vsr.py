@@ -141,13 +141,38 @@ data_transforms = transforms.Compose([
 # %% [markdown]
 # ## 3.3. Load the dataset
 
+# %%
+# Load videos and labels from all original and augmented video folders
+dataset_dir = "../Dataset"
+labels_dir = os.path.join(dataset_dir, "Csv (without Diacritics)")
+videos, labels = [], []
+# Specify exactly which preprocessed video folders to include
+preprocessed_dirs = [
+    "Preprocessed_Video",
+    "Preprocessed_Video_flip",
+]
+video_dirs = sorted([
+    os.path.join(dataset_dir, d)
+    for d in preprocessed_dirs
+    if os.path.isdir(os.path.join(dataset_dir, d))
+])
+for vdir in video_dirs:
+    for fname in sorted(os.listdir(vdir)):
+        if not fname.lower().endswith('.mp4'):
+            continue
+        stem = os.path.splitext(fname)[0]
+        # extract base ID before augmentation suffix
+        base = stem.split('_')[0]
+        videos.append(os.path.join(vdir, fname))
+        labels.append(os.path.join(labels_dir, base + ".csv"))
+
 # %% [markdown]
 # ## 3.4. Split the dataset
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1980/2004, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=6/24, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=3958/4008, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/50, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -160,6 +185,9 @@ test_dataset = VideoDataset(X_test, y_test, transform=data_transforms)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
 val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
+
+print(f"Number of train samples: {len(train_loader.dataset)}")
+print(f"Number of validation samples: {len(val_loader.dataset)}")
 
 # %% [markdown]
 # # 4. Model Configuration
@@ -213,7 +241,7 @@ conformer_options = {
     'attention_dim': 512,
     'attention_heads': 8,
     'linear_units': 2048,
-    'num_blocks': 12,
+    'num_blocks': 8,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
@@ -317,7 +345,7 @@ e2e_model = E2EVSR(
         'attention_dim': 512,
         'attention_heads': 8,
         'linear_units': 2048,
-        'num_blocks': 6,
+        'num_blocks': 4,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
         'self_attention_dropout_rate': 0.1,
