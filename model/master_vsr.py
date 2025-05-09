@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models import Lipreading
+from encoders.encoder_models import VisualTemporalEncoder
 from utils import *
 import logging
 from datetime import datetime
@@ -306,21 +306,21 @@ print(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder..
 logging.info(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder")
 
 if TEMPORAL_ENCODER == 'densetcn':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         densetcn_options=densetcn_options,
         hidden_dim=densetcn_options['hidden_dim'],
         num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'mstcn':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         tcn_options=mstcn_options,
         hidden_dim=mstcn_options['hidden_dim'],
         num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'conformer':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         conformer_options=conformer_options,
         hidden_dim=conformer_options['attention_dim'],
         num_tokens=base_vocab_size,

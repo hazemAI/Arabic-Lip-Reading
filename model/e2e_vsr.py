@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from encoders.encoder_models import Lipreading
+from encoders.encoder_models import VisualTemporalEncoder
 from espnet.decoder.transformer_decoder import TransformerDecoder
 from espnet.transformer.mask import subsequent_mask
 from espnet.transformer.add_sos_eos import add_sos_eos
@@ -40,11 +40,11 @@ class E2EVSR(BaseE2E):
         super().__init__(odim=dec_vocab_size, modality='video',
                          ctc_weight=ctc_weight, ignore_id=pad)
 
-        # 2) Build one Lipreading model and extract its components based on chosen encoder_type
+        # 2) Build one VisualTemporalEncoder model and extract its components based on chosen encoder_type
         tcn_opt = enc_options.get('mstcn_options', {}) if encoder_type == 'mstcn' else {}
         dense_opt = enc_options.get('densetcn_options', {}) if encoder_type == 'densetcn' else {}
         conf_opt = enc_options.get('conformer_options', {}) if encoder_type == 'conformer' else {}
-        lip_model = Lipreading(
+        vt_model = VisualTemporalEncoder(
             tcn_options=tcn_opt,
             densetcn_options=dense_opt,
             conformer_options=conf_opt,
@@ -52,9 +52,9 @@ class E2EVSR(BaseE2E):
             num_tokens=ctc_vocab_size,
             relu_type=enc_options.get('relu_type', 'swish'),
         )
-        self.frontend = lip_model.visual_frontend
-        self.proj_encoder = lip_model.adapter
-        self.encoder = lip_model.encoder
+        self.frontend = vt_model.visual_frontend
+        self.proj_encoder = vt_model.adapter
+        self.encoder = vt_model.encoder
         self.encoder_type = encoder_type  # remember encoder type for dispatch
 
         # Override BaseE2E's CTC module to match decoder vocabulary size and our encoder hidden dim

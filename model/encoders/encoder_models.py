@@ -82,7 +82,7 @@ class MultiscaleTCN(nn.Module):
         self.consensus_func = _sequence_batch
 
     def forward(self, x, lengths, B):
-        # x has dimension (B, T, C) from the Lipreading model
+        # x has dimension (B, T, C) from the VisualTemporalEncoder model
         # TCN trunk expects (B, C, T), so transpose
         x = x.transpose(1, 2)  # Now (B, C, T)
         
@@ -146,7 +146,7 @@ class VisualFrontend(nn.Module):
         return x
 
 
-class Lipreading(nn.Module):
+class VisualTemporalEncoder(nn.Module):
     def __init__(self,
                  modality='video',
                  hidden_dim=256,
@@ -158,7 +158,7 @@ class Lipreading(nn.Module):
                  conformer_options={},
                  extract_feats=False,
                 ):
-        super(Lipreading, self).__init__()
+        super(VisualTemporalEncoder, self).__init__()
         self.extract_feats = extract_feats
         self.backbone_type = backbone_type
         self.modality = modality

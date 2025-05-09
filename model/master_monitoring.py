@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models import Lipreading
+from encoders.encoder_models import VisualTemporalEncoder
 from utils import *
 import logging
 from datetime import datetime
@@ -244,21 +244,21 @@ print(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal en
 logging.info(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal encoder")
 
 if TEMPORAL_ENCODER == 'densetcn':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         densetcn_options=densetcn_options,
         hidden_dim=densetcn_options['hidden_dim'],
         num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'mstcn':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         tcn_options=mstcn_options,
         hidden_dim=mstcn_options['hidden_dim'],
         num_tokens=base_vocab_size,
         relu_type='swish'
     ).to(device)
 elif TEMPORAL_ENCODER == 'conformer':
-    vt_encoder = Lipreading(
+    vt_encoder = VisualTemporalEncoder(
         conformer_options=conformer_options,
         hidden_dim=conformer_options['attention_dim'],
         num_tokens=base_vocab_size,
@@ -361,7 +361,7 @@ steps_per_epoch = len(train_loader)
 scheduler = WarmupCosineScheduler(optimizer, warmup_epochs, total_epochs, steps_per_epoch)
 
 # Initialize Weights & Biases for model weight and metric logging
-wandb.init(project="arabic-lipreading-avsr", config={
+wandb.init(project="arabic-VisualTemporalEncoder-avsr", config={
     "learning_rate": initial_lr,
     "total_epochs": total_epochs,
     "warmup_epochs": warmup_epochs,

@@ -195,7 +195,7 @@ print(f"CER: {cer:.4f}, Edit Distance: {edit_distance}")
 
 This Jupyter notebook implements the video-only speech recognition (VSR) pipeline. It covers:
 - **Data Preparation**: Frame extraction, label mapping, DataLoader setup with `pad_packed_collate`.
-- **Model Configuration**: Choosing `conformer`, `densetcn`, or `mstcn` temporal encoder, building `Lipreading` model, loading pretrained frontend.
+- **Model Configuration**: Choosing `conformer`, `densetcn`, or `mstcn` temporal encoder, building `VisualTemporalEncoder` model, loading pretrained frontend.
 - **Training Loop**: Hybrid CTC + attention training, optimizer and scheduler setup, checkpoint saving.
 - **Evaluation**: Beam search decoding on validation set, CER computation.
 
