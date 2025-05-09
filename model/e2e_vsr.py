@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from encoders.encoder_models import Lipreading
@@ -98,6 +99,7 @@ class E2EVSR(BaseE2E):
             'ctc':          ctc_weight,
             'length_bonus': length_bonus_weight,
         }
+        
         self.beam_search = BatchBeamSearch(
             scorers=scorers,
             weights=weights,

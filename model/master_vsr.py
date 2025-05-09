@@ -17,6 +17,8 @@ from datetime import datetime
 import traceback
 from e2e_vsr import E2EVSR
 from postprocess import *
+from types import SimpleNamespace
+from espnet.scorers.ngram import NgramFullScorer
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -80,8 +82,8 @@ def extract_label(file):
     return label
 
 tokens = set()
-for i in os.listdir('../Dataset/Csv (without Diacritics)'):
-    file = '../Dataset/Csv (without Diacritics)/' + i
+for i in os.listdir('../Dataset/Csv (with Diacritics)'):
+    file = '../Dataset/Csv (with Diacritics)/' + i
     label = extract_label(file)
     tokens.update(label)
 
@@ -93,9 +95,49 @@ print(mapped_tokens)
 logging.info(mapped_tokens)
 # %% [markdown]
 # ## 3.2. Video Dataset Class
-
 # %%
-# Defining the video dataset class
+# Video augmentation constants and transforms
+MEAN = 0.41923218965530395
+STD  = 0.13392585515975952
+
+# Video augmentation class using Kornia VideoSequential with assertions
+class VideoAugmentation:
+    def __init__(self, is_train=True, crop_size=(88, 88)):
+        if is_train:
+            self.aug = K.VideoSequential(
+                K.RandomCrop(crop_size, p=1.0),
+                data_format="BCTHW", same_on_frame=True,
+            )
+        else:
+            self.aug = K.VideoSequential(
+                K.CenterCrop(crop_size, p=1.0),
+                data_format="BCTHW", same_on_frame=True,
+            )
+        self.crop_size = crop_size
+
+    def __call__(self, pil_frames):
+        # Convert list of PIL images to tensor sequence
+        frame_tensors = [transforms.ToTensor()(img) for img in pil_frames]
+        video = torch.stack(frame_tensors, dim=0)      # (T, C, H, W)
+        video = video.permute(1, 0, 2, 3)              # (C, T, H, W)
+        video_batch = video.unsqueeze(0)               # (1, C, T, H, W)
+        # Apply augmentations
+        augmented = self.aug(video_batch)
+        augmented = augmented.squeeze(0)               # (C, T, H, W)
+        # Assertions for shape and validity
+        C, T, H, W = augmented.shape
+        assert C == 1, f"Expected channel=1, got {C}"
+        assert (H, W) == self.crop_size, f"Expected spatial size {self.crop_size}, got {(H,W)}"
+        assert not torch.isnan(augmented).any(), "NaNs in augmented clip!"
+        assert not torch.isinf(augmented).any(), "Infs in augmented clip!"
+        # Normalize channels
+        augmented = (augmented - MEAN) / STD
+        return augmented
+
+# Instantiate augmenters for datasets
+train_transform = VideoAugmentation(is_train=True)
+val_transform   = VideoAugmentation(is_train=False)
+
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, video_paths, label_paths, transform=None):
         self.video_paths = video_paths
@@ -127,16 +169,18 @@ class VideoDataset(torch.utils.data.Dataset):
                 frames.append(frame_pil)
 
         if self.transform is not None:
-            frames = [self.transform(frame) for frame in frames] 
-        frames = torch.stack(frames).permute(1, 0, 2, 3)
-        return frames
+            # Apply video-level transformation
+            video = self.transform(frames)
+        else:
+            # Fallback: per-frame ToTensor + Normalize
+            frame_tensors = []
+            for img in frames:
+                t = transforms.ToTensor()(img)
+                t = transforms.Normalize(mean=[MEAN], std=[STD])(t)
+                frame_tensors.append(t)
+            video = torch.stack(frame_tensors).permute(1, 0, 2, 3)
+        return video
 
-# Defining data augmentation transforms for train, validation, and test
-data_transforms = transforms.Compose([
-    # transforms.CenterCrop(88),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=0.419232189655303955078125, std=0.133925855159759521484375),
-])
 
 # %% [markdown]
 # ## 3.3. Load the dataset
@@ -144,7 +188,7 @@ data_transforms = transforms.Compose([
 # %%
 # Load videos and labels from all original and augmented video folders
 dataset_dir = "../Dataset"
-labels_dir = os.path.join(dataset_dir, "Csv (without Diacritics)")
+labels_dir = os.path.join(dataset_dir, "Csv (with Diacritics)")
 videos, labels = [], []
 # Specify exactly which preprocessed video folders to include
 preprocessed_dirs = [
@@ -165,14 +209,15 @@ for vdir in video_dirs:
         base = stem.split('_')[0]
         videos.append(os.path.join(vdir, fname))
         labels.append(os.path.join(labels_dir, base + ".csv"))
+print(f"Loaded {len(videos)} video-label pairs")
 
 # %% [markdown]
 # ## 3.4. Split the dataset
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=3958/4008, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=10/50, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=3978/4008, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/30, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -215,13 +260,13 @@ print(f"EOS token index: {eos_token_idx}")
 # %%
 # DenseTCN configuration (our default backbone)
 densetcn_options = {
-    'block_config': [3, 3, 3, 3],               # Number of layers in each dense block
-    'growth_rate_set': [192, 192, 192, 192],    # Growth rate for each block
-    'reduced_size': 256,                        # Reduced size between blocks
-    'kernel_size_set': [3, 5, 7],               # Kernel sizes for multi-scale processing
+    'block_config': [4, 4, 4, 4],               # Number of layers in each dense block
+    'growth_rate_set': [384, 384, 384, 384],    # Growth rate for each block
+    'reduced_size': 512,                        # Reduced size between blocks
+    'kernel_size_set': [3, 5, 7, 9],            # Kernel sizes for multi-scale processing
     'dilation_size_set': [1, 2, 4, 8],          # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
-    'dropout': 0.1,
+    'dropout': 0.2,
     'hidden_dim': 512,
 }
 
@@ -229,9 +274,9 @@ densetcn_options = {
 mstcn_options = {
     'tcn_type': 'multiscale',
     'hidden_dim': 512,
-    'num_channels': [192, 192, 192, 192],       # 4 layers with N channels each (divisible by 3)
-    'kernel_size': [3, 5, 7],                   
-    'dropout': 0.1,
+    'num_channels': [384, 384, 384, 384],       # 4 layers with N channels each (divisible by 3)
+    'kernel_size': [3, 5, 7, 9],                   
+    'dropout': 0.2,
     'stride': 1,
     'width_mult': 1.0,
 }
@@ -240,7 +285,7 @@ mstcn_options = {
 conformer_options = {
     'attention_dim': 512,
     'attention_heads': 8,
-    'linear_units': 2048,
+    'linear_units': 1024,
     'num_blocks': 8,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
@@ -344,7 +389,7 @@ e2e_model = E2EVSR(
     dec_options={
         'attention_dim': 512,
         'attention_heads': 8,
-        'linear_units': 2048,
+        'linear_units': 1024,
         'num_blocks': 4,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
@@ -355,13 +400,13 @@ e2e_model = E2EVSR(
     ctc_weight=0.3,
     label_smoothing=0.2,
     beam_size=10,
-    length_bonus_weight=0.0
+    length_bonus_weight=0.0,
 ).to(device)
 
 
 # Training parameters
 initial_lr = 3e-4
-total_epochs = 75
+total_epochs = 1
 warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model

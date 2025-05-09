@@ -223,7 +223,7 @@ mstcn_options = {
 conformer_options = {
     'attention_dim': 512,
     'attention_heads': 8,
-    'linear_units': 2048,
+    'linear_units': 1024,
     'num_blocks': 8,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
@@ -328,7 +328,7 @@ e2e_model = E2EVSR(
     dec_options={
         'attention_dim': 512,
         'attention_heads': 8,
-        'linear_units': 2048,
+        'linear_units': 1024,
         'num_blocks': 4,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,

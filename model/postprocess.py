@@ -2,8 +2,10 @@
 import os
 import pandas as pd
 import difflib
+import re
+import regex
 
-# Build vocabulary mapping by scanning dataset CSVs (without diacritics)
+# Build vocabulary mapping by scanning dataset CSVs (with diacritics)
 def extract_label(file):
     diacritics = {
         '\u064B', '\u064C', '\u064D', '\u064E', '\u064F',
@@ -19,12 +21,39 @@ def extract_label(file):
                 label[-1] += char
     return label
 
-csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Dataset', 'Csv (without Diacritics)'))
+csv_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Dataset', 'Csv (with Diacritics)'))
 tokens = set()
 for fname in os.listdir(csv_dir):
     if fname.endswith('.csv'):
         tokens.update(extract_label(os.path.join(csv_dir, fname)))
 mapped_tokens = {c: i for i, c in enumerate(sorted(tokens, reverse=True), 1)}
+# Override token-to-index mapping with explicit dictionary to avoid diacritic parsing errors
+mapped_tokens = {
+    "ٱ": 1, "يْ": 2, "يّْ": 3, "يِّ": 4, "يُّ": 5, "يَّ": 6, "يٌّ": 7, "يِ": 8, "يُ": 9, "يَ": 10,
+    "يٌ": 11, "ي": 12, "ى": 13, "وْ": 14, "وِّ": 15, "وُّ": 16, "وَّ": 17, "وِ": 18, "وُ": 19, "وَ": 20,
+    "وً": 21, "و": 22, "هْ": 23, "هُّ": 24, "هِ": 25, "هُ": 26, "هَ": 27, "نۢ": 28, "نْ": 29, "نِّ": 30,
+    "نُّ": 31, "نَّ": 32, "نِ": 33, "نُ": 34, "نَ": 35, "مْ": 36, "مّْ": 37, "مِّ": 38, "مُّ": 39, "مَّ": 40,
+    "مِ": 41, "مُ": 42, "مَ": 43, "مٍ": 44, "مٌ": 45, "مً": 46, "لْ": 47, "لّْ": 48, "لِّ": 49, "لُّ": 50,
+    "لَّ": 51, "لِ": 52, "لُ": 53, "لَ": 54, "لٍ": 55, "لٌ": 56, "لً": 57, "كْ": 58, "كِّ": 59, "كَّ": 60,
+    "كِ": 61, "كُ": 62, "كَ": 63, "قْ": 64, "قَّ": 65, "قِ": 66, "قُ": 67, "قَ": 68, "قٍ": 69, "قً": 70,
+    "فْ": 71, "فِّ": 72, "فَّ": 73, "فِ": 74, "فُ": 75, "فَ": 76, "غْ": 77, "غِ": 78, "غَ": 79, "عْ": 80,
+    "عَّ": 81, "عِ": 82, "عُ": 83, "عَ": 84, "عٍ": 85, "ظْ": 86, "ظِّ": 87, "ظَّ": 88, "ظِ": 89, "ظُ": 90,
+    "ظَ": 91, "طْ": 92, "طِّ": 93, "طَّ": 94, "طِ": 95, "طُ": 96, "طَ": 97, "ضْ": 98, "ضِّ": 99, "ضُّ": 100,
+    "ضَّ": 101, "ضِ": 102, "ضُ": 103, "ضَ": 104, "ضً": 105, "صْ": 106, "صّْ": 107, "صِّ": 108, "صُّ": 109,
+    "صَّ": 110, "صِ": 111, "صُ": 112, "صَ": 113, "صٍ": 114, "صً": 115, "شْ": 116, "شِّ": 117, "شُّ": 118,
+    "شَّ": 119, "شِ": 120, "شُ": 121, "شَ": 122, "سْ": 123, "سّْ": 124, "سِّ": 125, "سُّ": 126, "سَّ": 127,
+    "سِ": 128, "سُ": 129, "سَ": 130, "سٍ": 131, "زْ": 132, "زَّ": 133, "زِ": 134, "زُ": 135, "زَ": 136,
+    "رْ": 137, "رِّ": 138, "رُّ": 139, "رَّ": 140, "رِ": 141, "رُ": 142, "رَ": 143, "رٍ": 144, "رٌ": 145,
+    "رً": 146, "ذْ": 147, "ذَّ": 148, "ذِ": 149, "ذُ": 150, "ذَ": 151, "دْ": 152, "دِّ": 153, "دُّ": 154,
+    "دَّ": 155, "دًّ": 156, "دِ": 157, "دُ": 158, "دَ": 159, "دٍ": 160, "دٌ": 161, "دً": 162, "خْ": 163,
+    "خِ": 164, "خُ": 165, "خَ": 166, "حْ": 167, "حَّ": 168, "حِ": 169, "حُ": 170, "حَ": 171, "جْ": 172,
+    "جِّ": 173, "جُّ": 174, "جَّ": 175, "جِ": 176, "جُ": 177, "جَ": 178, "ثْ": 179, "ثِّ": 180, "ثُّ": 181,
+    "ثَّ": 182, "ثِ": 183, "ثُ": 184, "ثَ": 185, "تْ": 186, "تِّ": 187, "تُّ": 188, "تَّ": 189, "تِ": 190,
+    "تُ": 191, "تَ": 192, "تٍ": 193, "تٌ": 194, "ةْ": 195, "ةِ": 196, "ةُ": 197, "ةَ": 198, "ةٍ": 199,
+    "ةٌ": 200, "ةً": 201, "بْ": 202, "بِّ": 203, "بَّ": 204, "بِ": 205, "بُ": 206, "بَ": 207, "بٍ": 208,
+    "بً": 209, "ا": 210, "ئْ": 211, "ئِ": 212, "ئَ": 213, "ئً": 214, "إِ": 215, "ؤْ": 216, "ؤُ": 217,
+    "ؤَ": 218, "أْ": 219, "أُ": 220, "أَ": 221, "آ": 222, "ءْ": 223, "ءِ": 224, "ءَ": 225, "ءً": 226
+}
 base_vocab_size = len(mapped_tokens) + 1  # +1 for blank token
 sos_token_idx = base_vocab_size
 eos_token_idx = base_vocab_size + 1
@@ -77,29 +106,19 @@ def collapse_repeats(seq, max_repeat=1):
             count = 1
     return collapsed
 
-# I am adding this function to remove consecutive repeated subsequences
-def remove_consecutive_subsequences(seq):
+# DP removal of adjacent repeated subsequences via dynamic programming
+def remove_consecutive_repeats_dp(seq):
     """
-    Remove consecutive repeated subsequences in the sequence.
+    Remove one instance of the largest adjacent repeated subsequence in seq.
     """
-    if not seq:
-        return []
-    result = []
-    i = 0
     n = len(seq)
-    while i < n:
-        found = False
-        max_L = (n - i) // 2
-        for L in range(max_L, 0, -1):
+    # search for the largest block length L where seq[i:i+L] == seq[i+L:i+2*L]
+    for L in range(n // 2, 1, -1):
+        for i in range(0, n - 2*L + 1):
             if seq[i:i+L] == seq[i+L:i+2*L]:
-                result.extend(seq[i:i+L])
-                i += 2 * L
-                found = True
-                break
-        if not found:
-            result.append(seq[i])
-            i += 1
-    return result
+                # remove the second occurrence
+                return seq[:i+L] + seq[i+2*L:]
+    return seq
 
 # I am adding this function to iteratively prune nested repeated subsequences
 def prune_repeats(seq):
@@ -108,7 +127,7 @@ def prune_repeats(seq):
     """
     prev = seq
     while True:
-        next_seq = remove_consecutive_subsequences(prev)
+        next_seq = remove_consecutive_repeats_dp(prev)
         if next_seq == prev:
             return next_seq
         prev = next_seq
@@ -187,14 +206,46 @@ def best_subsegment(seq, ref_seq, delta=2):
                 best = sub
     return best
 
+# I am adding this function to remove any global repeated subsequences anywhere in a sequence
+def remove_global_repeats(seq, min_length=2):
+    """
+    Remove any repeated contiguous subsequences of length >= min_length anywhere in sequence.
+    """
+    if not seq:
+        return []
+    prev = seq
+    changed = True
+    while changed:
+        changed = False
+        n = len(prev)
+        for L in range(n // 2, min_length - 1, -1):
+            for i in range(n - L + 1):
+                sub = prev[i:i+L]
+                for j in range(i + 1, n - L + 1):
+                    if prev[j:j+L] == sub:
+                        prev = prev[:j] + prev[j+L:]
+                        changed = True
+                        break
+                if changed:
+                    break
+            if changed:
+                break
+    return prev
+
 # Add cleaning pipelines to encapsulate post-processing logic
 def unsupervised_cleaning(seq, sos_idx, eos_idx, max_repeat=1):
     """
-    Remove <sos>/<eos>, collapse repeats, and prune subsequences without using a reference sequence.
+    Remove <sos>/<eos> and unsupervised removal of repeated subsequences via DP.
     """
+    # remove sos/eos markers
     cleaned = clean_indices(seq, sos_idx, eos_idx)
-    collapsed = collapse_repeats(cleaned, max_repeat=max_repeat)
-    pruned = prune_repeats(collapsed)
+    # iteratively remove adjacent repeated subsequences until stable
+    pruned = cleaned
+    while True:
+        next_seq = remove_consecutive_repeats_dp(pruned)
+        if next_seq == pruned:
+            break
+        pruned = next_seq
     return pruned
 
 def full_cleaning(pruned_seq, ref_seq, length_penalty=0.1):
@@ -223,122 +274,106 @@ def full_cleaning(pruned_seq, ref_seq, length_penalty=0.1):
             best_score, best_cer, best_edit, best_seq = score, cer_val, edit_val, cand
     return best_seq, best_cer, best_edit
 
+def remove_repeated_substrings(text, min_len=3):
+    """
+    Remove any repeated contiguous substring of length >= min_len in text by DP.
+    """
+    s = text
+    changed = True
+    while changed:
+        changed = False
+        n = len(s)
+        # search for largest repeat
+        for L in range(n // 2, min_len - 1, -1):
+            for i in range(0, n - 2*L + 1):
+                if s[i:i+L] == s[i+L:i+2*L]:
+                    # remove second occurrence
+                    s = s[:i+L] + s[i+2*L:]
+                    changed = True
+                    break
+            if changed:
+                break
+    return s
+
+# Noise-tolerant repeat removal allowing small gaps
+def remove_noisy_repeats(text, min_len=3, max_gap=3):
+    """
+    Collapse any repeated substring of length >= min_len that appears twice
+    with up to max_gap characters between them.
+    """
+    s = text
+    prev = None
+    pat = regex.compile(r'(.{%d,}?)(?:.{0,%d}?)(\1)' % (min_len, max_gap))
+    while prev != s:
+        prev = s
+        s = regex.sub(pat, r"\1", s, overlapped=True)
+    return s
+
+# Global text-level repeat removal on decoded text
+def remove_global_text_repeats(text, min_len=3):
+    """
+    Remove any trailing contiguous substring of length >= min_len if it appears earlier in the text.
+    """
+    n = len(text)
+    # try longest possible suffix first
+    for L in range(n // 2, min_len - 1, -1):
+        sfx = text[-L:]
+        if sfx in text[:-L]:
+            return text[:-L]
+    return text
+
 if __name__ == '__main__':
-    # Example batch of hypothesis index sequences (including <sos> and <eos>)
-    sample_batch = [
-        [38,11,2,7,4,31,10,13,28,8,18,21,31,10,2,35,13,28,8,27,2,31,27,2,39],
-        [38,7,4,26,20,1,19,8,31,7,13,8,2,9,7,33,8,3,1,8,2,9,7,39],
-        [38,9,4,23,1,8,13,31,17,7,29,1,8,35,11,2,11,2,11,2,11,2,11,2,19,39],
-        [38,11,2,25,21,31,8,30,18,7,31,8,5,33,8,3,33,8,3,19,30,39],
-        [38,17,31,8,25,7,23,21,30,6,31,29,7,4,6,4,6,25,11,4,6,19,39],
-        [38,30,18,35,6,4,20,31,21,29,1,8,4,20,21,31,37,1,23,11,31,39],
-        [38,7,10,31,4,7,1,18,13,30,2,5,1,8,35,15,21,2,5,1,8,28,25,21,2,21,39],
-        [38,25,28,8,11,2,4,10,23,4,31,8,1,8,13,21,31,10,2,31,19,2,31,39],
-        [38,35,13,18,21,23,6,1,8,25,9,4,7,29,1,8,2,7,31,6,2,39],
-        [38,4,20,31,21,31,28,21,29,1,8,4,20,31,21,29,1,8,24,31,21,26,2,39],
-        [38,33,6,28,4,8,31,2,31,7,1,8,7,4,8,7,4,8,7,4,8,13,31,25,23,39],
-        [38,21,13,10,28,8,4,35,17,2,30,36,24,7,19,36,24,21,25,7,29,39],
-        [38,7,25,7,23,13,8,2,1,8,13,21,4,19,2,31,1,8,4,19,2,21,4,19,2,39],
-        [38,8,7,13,1,8,4,8,31,2,31,28,1,8,7,28,25,23,5,28,25,23,5,39],
-        [38,7,4,26,20,1,8,35,6,30,31,37,7,6,10,6,31,29,33,15,21,31,6,2,39],
-        [38,10,31,8,28,7,17,31,23,21,13,19,9,21,2,5,11,2,8,19,2,31,39],
-        [38,10,31,8,21,32,2,19,1,8,25,9,4,7,29,1,8,30,6,2,39],
-        [38,10,31,8,1,8,7,28,25,23,27,30,19,25,23,27,30,19,27,30,19,7,39],
-        [38,28,2,4,10,4,31,28,1,8,24,31,17,31,8,25,1,8,26,21,31,39],
-        [38,7,17,31,23,21,25,8,30,1,8,13,23,5,30,36,24,8,31,17,8,39],
-        [38,33,6,1,8,26,2,18,1,8,4,15,6,2,1,8,4,15,6,2,1,8,15,6,2,7,39],
-        [38,20,31,21,29,1,8,35,6,30,31,37,7,6,33,6,28,2,38,30,36,24,31,6,39],
-        [38,21,32,2,19,29,1,8,7,26,8,19,1,8,4,20,21,31,37,4,19,2,35,21,39],
-        [38,10,31,8,21,30,9,7,17,31,23,21,7,17,31,23,21,7,25,7,23,21,39],
-        [38,13,8,3,33,28,11,31,10,1,28,25,31,8,4,15,6,14,31,1,28,4,15,6,15,6,2,39],
-        [38,4,13,23,1,8,25,4,27,2,4,30,6,31,1,8,30,13,29,7,31,37,1,8,2,39],
-        [38,4,35,17,2,30,36,24,21,6,5,31,1,8,24,21,36,24,31,6,36,24,31,6,39],
-        [38,11,2,7,25,31,11,14,29,1,8,7,3,1,8,7,35,30,22,2,31,39],
-        [38,7,21,11,2,13,10,13,8,3,33,28,11,31,23,1,8,33,17,31,20,2,21,39],
-        [38,2,6,25,4,27,8,31,4,7,33,8,3,1,8,26,20,2,4,7,19,8,26,20,39],
-        [38,20,2,21,5,11,2,8,2,30,2,31,23,11,12,31,23,11,12,31,6,29,11,12,31,39],
-        [38,9,31,8,28,1,8,35,6,30,31,37,1,8,24,31,1,8,13,20,2,21,29,39],
-    ]
 
-    # List of actual target texts for demonstration
-    reference_texts = [
-        "دفتمواقعداخل",
-        "موجزٱسلامعليكم",
-        "شرطةٱلعاصمةٱلأفغاني",
-        "شمالحلب",
-        "بتحقيقماتصفه",
-        "بشأنوزارةٱدفاع",
-        "قامٱشعبيهأنها",
-        "شخصقتلوعلى",
-        "أكدتٱلحكومةٱليمني",
-        "مقروزارةٱلخارجيه",
-        "ولميحدد",
-        "ٱلأقلوأصيبخمسو",
-        "محمدعليٱلحوثي",
-        "نبقىفيٱلولاياتٱلمتحده",
-        "موجزٱلأنباءمنقناة",
-        "قالتمصادرفلسطينيه",
-        "رئيسٱلحكومةٱلبناني",
-        "قالٱلمتحدثبسم",
-        "طفالوأصيبٱلعشرا",
-        "مدينةحلب",
-        "خلالهاٱلجيشٱلوطني",
-        "ٱلمركزيفيبنغازي",
-        "رئيسمجلسٱلوز",
-        "إخلاءليبيامنٱلقو",
-        "علىإتفاقيتيح",
-        "مقتلنحومئة",
-        "وأصيبآخرو",
-        "فيمحافظةمأرب",
-        "فيإتفاقإسر",
-        "قتلنحوخمسينشخ",
-        "دولةفيليبياقصف",
-        "ٱلأمينٱلعاملحركة",
-    ]
-
-    # We already built sos_token_idx and eos_token_idx above
-    # Write decoded sequences to file
-    output_file = os.path.abspath(os.path.join(os.path.dirname(__file__), 'decoded_batch.txt'))
-    with open(output_file, 'w', encoding='utf-8') as fout:
-        for i, seq in enumerate(sample_batch, 1):
-            cleaned = clean_indices(seq, sos_token_idx, eos_token_idx)
-            # collapse any repeated tokens to a single instance
-            collapsed = collapse_repeats(cleaned, max_repeat=1)
-            pruned = prune_repeats(collapsed)
-            # build reference indices
-            ref_text = reference_texts[i-1] if i-1 < len(reference_texts) else ""
-            ref_indices = [mapped_tokens.get(ch, 0) for ch in ref_text]
-            # build candidate sequences
-            prefix_seq = common_prefix(pruned, ref_indices)
-            start, length = longest_match_block(pruned, ref_indices)
-            substr_seq = pruned[start:start+length] if length > 0 else []
-            # build extra candidates
-            lcs_seq = lcs_sequence(pruned, ref_indices)
-            best_sub = best_subsegment(pruned, ref_indices)
-            # composite scoring: CER + length penalty
-            beta = 0.5
-            best_seq = pruned
-            best_score, _ = compute_cer(ref_indices, pruned)
-            ref_len = len(ref_indices) if len(ref_indices) > 0 else 1
-            # evaluate candidates
-            for cand in [pruned, prefix_seq, substr_seq, lcs_seq, best_sub]:
-                if not cand:
-                    continue
-                cer_val, _ = compute_cer(ref_indices, cand)
-                # normalized length penalty
-                length_pen = abs(len(cand) - ref_len) / ref_len
-                score = cer_val + beta * length_pen
-                # select minimal score, break ties on lower CER
-                if score < best_score or (abs(score - best_score) < 1e-6 and cer_val < compute_cer(ref_indices, best_seq)[0]):
-                    best_score = score
-                    best_seq = cand
-            final_seq = best_seq
-            decoded_text = indices_to_text(final_seq, idx2char)
-            fout.write(f"Decoded sequence {i}: {decoded_text}\n")
-            # Write the actual reference label below
-            fout.write(f"Reference sequence {i}: {ref_text}\n")
-            # Compute CER and sequence lengths
-            hyp_indices = final_seq
-            cer_value, edit_dist = compute_cer(ref_indices, hyp_indices)
-            fout.write(f"CER: {cer_value:.3f} (edits: {edit_dist}), Pred len: {len(hyp_indices)}, Ref len: {len(ref_indices)}\n\n")
-    print(f"Decoded sequences written to {output_file}") 
+    # Apply unsupervised cleaning to training log
+    log_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'helpers', 'traininglog_conformer_dia_filp.txt'))
+    if os.path.isfile(log_file):
+        out_file = log_file[:-4] + '_cleaned_unsupervised.txt'
+        print(f"Cleaning training log {log_file} -> {out_file}")
+        def clean_and_score(orig_txt, target_txt):
+            # strip tokens
+            orig = orig_txt.replace('<sos>', '').replace('<eos>', '')
+            # 1) noise-tolerant removal of repeated substrings
+            cleaned_noisy = remove_noisy_repeats(orig, min_len=3, max_gap=3)
+            # 2) global text-level repeat removal
+            cleaned = remove_global_text_repeats(cleaned_noisy, min_len=3)
+            # compute CER against reference for reporting
+            # map reference to indices
+            ref_idx = [mapped_tokens.get(c, 0) for c in target_txt]
+            # map cleaned text to indices
+            cleaned_idx = [mapped_tokens.get(c, 0) for c in cleaned]
+            cer_val, _ = compute_cer(ref_idx, cleaned_idx)
+            return cleaned, cer_val
+        # read and process log lines
+        with open(log_file, 'r', encoding='utf-8') as fin:
+            lines = fin.readlines()
+        # write cleaned log and compute average CER on cleaned outputs
+        cer_sum = 0.0
+        cer_count = 0
+        with open(out_file, 'w', encoding='utf-8') as fout:
+            for idx, line in enumerate(lines):
+                # stop before the original summary block
+                if line.startswith('=== Summary Statistics'): break
+                # skip original metrics
+                if line.startswith('Edit distance:') or line.startswith('CER:'): continue
+                fout.write(line)
+                # when predicted appears, compute cleaning with next target line
+                if line.startswith('Predicted text:'):
+                    orig = line.strip().split(': ', 1)[1]
+                    # get target from following line
+                    target = ''
+                    if idx+1 < len(lines) and lines[idx+1].startswith('Target text:'):
+                        target = lines[idx+1].strip().split(': ',1)[1]
+                    cleaned_txt, cleaned_cer = clean_and_score(orig, target)
+                    fout.write(f"Cleaned text: {cleaned_txt}\n")
+                    fout.write(f"Cleaned CER: {cleaned_cer:.4f}\n")
+                    cer_sum += cleaned_cer
+                    cer_count += 1
+            # append cleaned summary after processing
+            if cer_count > 0:
+                avg_cer = cer_sum / cer_count
+                fout.write("\n=== Cleaned Summary ===\n")
+                fout.write(f"Total samples: {cer_count}\n")
+                fout.write(f"Average CER: {avg_cer:.4f}\n")
+        print(f"Unsup cleaned log written to {out_file}")
+    else:
+        print(f"Training log not found at {log_file}") 
