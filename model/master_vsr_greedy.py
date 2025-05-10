@@ -676,7 +676,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
         # Always print summary statistics to console
         print("\n=== Summary Statistics ===")
         print(f"Total samples: {n_samples}")
-        print(f"Average CER: {avg_cer:.4f}")
+        print(f"Average CER: {avg_cer:.4f}\n")
         
         # Log summary statistics as well
         logging.info("\n=== Summary Statistics ===")
