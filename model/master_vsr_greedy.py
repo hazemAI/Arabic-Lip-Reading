@@ -15,8 +15,10 @@ from utils import *
 import logging
 from datetime import datetime
 import traceback
-from e2e_vsr import E2EVSR
-import wandb
+from e2e_vsr_greedy import E2EVSR
+from postprocess import *
+from espnet.scorers.ngram import NgramFullScorer
+import kornia.augmentation as K
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -27,7 +29,7 @@ for h in logging.root.handlers[:]:
 logging.basicConfig(
     filename=log_filename,
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(message)s',
     encoding='utf-8',
     force=True 
 )
@@ -91,12 +93,51 @@ for i, c in enumerate(sorted(tokens, reverse=True), 1):
 
 print(mapped_tokens)
 logging.info(mapped_tokens)
-
 # %% [markdown]
 # ## 3.2. Video Dataset Class
-
 # %%
-# Defining the video dataset class
+# Video augmentation constants and transforms
+MEAN = 0.41923218965530395
+STD  = 0.13392585515975952
+
+# Video augmentation class using Kornia VideoSequential with assertions
+class VideoAugmentation:
+    def __init__(self, is_train=True, crop_size=(88, 88)):
+        if is_train:
+            self.aug = K.VideoSequential(
+                K.RandomCrop(crop_size, p=1.0),
+                data_format="BCTHW", same_on_frame=True,
+            )
+        else:
+            self.aug = K.VideoSequential(
+                K.CenterCrop(crop_size, p=1.0),
+                data_format="BCTHW", same_on_frame=True,
+            )
+        self.crop_size = crop_size
+
+    def __call__(self, pil_frames):
+        # Convert list of PIL images to tensor sequence
+        frame_tensors = [transforms.ToTensor()(img) for img in pil_frames]
+        video = torch.stack(frame_tensors, dim=0)      # (T, C, H, W)
+        video = video.permute(1, 0, 2, 3)              # (C, T, H, W)
+        video_batch = video.unsqueeze(0)               # (1, C, T, H, W)
+        # Apply augmentations
+        augmented = self.aug(video_batch)
+        augmented = augmented.squeeze(0)               # (C, T, H, W)
+        # Assertions for shape and validity
+        C, T, H, W = augmented.shape
+        assert C == 1, f"Expected channel=1, got {C}"
+        assert (H, W) == self.crop_size, f"Expected spatial size {self.crop_size}, got {(H,W)}"
+        assert not torch.isnan(augmented).any(), "NaNs in augmented clip!"
+        assert not torch.isinf(augmented).any(), "Infs in augmented clip!"
+        # Normalize channels
+        augmented = (augmented - MEAN) / STD
+        return augmented
+
+# Instantiate augmenters for datasets
+train_transform = VideoAugmentation(is_train=True)
+val_transform   = VideoAugmentation(is_train=False)
+
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, video_paths, label_paths, transform=None):
         self.video_paths = video_paths
@@ -128,49 +169,70 @@ class VideoDataset(torch.utils.data.Dataset):
                 frames.append(frame_pil)
 
         if self.transform is not None:
-            frames = [self.transform(frame) for frame in frames] 
-        frames = torch.stack(frames).permute(1, 0, 2, 3)
-        return frames
+            # Apply video-level transformation
+            video = self.transform(frames)
+        else:
+            # Fallback: per-frame ToTensor + Normalize
+            frame_tensors = []
+            for img in frames:
+                t = transforms.ToTensor()(img)
+                t = transforms.Normalize(mean=[MEAN], std=[STD])(t)
+                frame_tensors.append(t)
+            video = torch.stack(frame_tensors).permute(1, 0, 2, 3)
+        return video
 
-# Defining data augmentation transforms for train, validation, and test
-data_transforms = transforms.Compose([
-    # transforms.CenterCrop(88),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=0.419232189655303955078125, std=0.133925855159759521484375),
-])
 
 # %% [markdown]
 # ## 3.3. Load the dataset
 
 # %%
-# Load videos and labels
-videos_dir = "../Dataset/Preprocessed_Video"
-labels_dir = "../Dataset/Csv (with Diacritics)"
+# Load videos and labels from all original and augmented video folders
+dataset_dir = "../Dataset"
+labels_dir = os.path.join(dataset_dir, "Csv (with Diacritics)")
 videos, labels = [], []
-file_names = [file_name[:-4] for file_name in os.listdir(videos_dir)]
-for file_name in file_names:
-    videos.append(os.path.join(videos_dir, file_name + ".mp4"))
-    labels.append(os.path.join(labels_dir, file_name + ".csv"))
-    
+# Specify exactly which preprocessed video folders to include
+preprocessed_dirs = [
+    "Preprocessed_Video",
+    "Preprocessed_Video_flip",
+]
+video_dirs = sorted([
+    os.path.join(dataset_dir, d)
+    for d in preprocessed_dirs
+    if os.path.isdir(os.path.join(dataset_dir, d))
+])
+for vdir in video_dirs:
+    for fname in sorted(os.listdir(vdir)):
+        if not fname.lower().endswith('.mp4'):
+            continue
+        stem = os.path.splitext(fname)[0]
+        # extract base ID before augmentation suffix
+        base = stem.split('_')[0]
+        videos.append(os.path.join(vdir, fname))
+        labels.append(os.path.join(labels_dir, base + ".csv"))
+print(f"Loaded {len(videos)} video-label pairs")
+
 # %% [markdown]
 # ## 3.4. Split the dataset
 
 # %%
 # Split the dataset into training, validation, test sets
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=1903/2004, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=21/101, random_state=seed)
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=3978/4008, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/30, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
 
 # %%
 # Defining the video dataloaders (train, validation, test)
-train_dataset = VideoDataset(X_train, y_train, transform=data_transforms)
-val_dataset = VideoDataset(X_val, y_val, transform=data_transforms)
-test_dataset = VideoDataset(X_test, y_test, transform=data_transforms)
+train_dataset = VideoDataset(X_train, y_train, transform=train_transform)
+val_dataset = VideoDataset(X_val, y_val, transform=val_transform)
+test_dataset = VideoDataset(X_test, y_test, transform=val_transform)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
 val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
+
+print(f"Number of train samples: {len(train_loader.dataset)}")
+print(f"Number of validation samples: {len(val_loader.dataset)}")
 
 # %% [markdown]
 # # 4. Model Configuration
@@ -198,23 +260,23 @@ print(f"EOS token index: {eos_token_idx}")
 # %%
 # DenseTCN configuration (our default backbone)
 densetcn_options = {
-    'block_config': [2, 2, 2, 2],               # Number of layers in each dense block
-    'growth_rate_set': [96, 96, 96, 96],        # Growth rate for each block
-    'reduced_size': 256,                        # Reduced size between blocks
-    'kernel_size_set': [3, 5, 7],               # Kernel sizes for multi-scale processing
-    'dilation_size_set': [1, 2],                # Dilation rates for increasing receptive field
+    'block_config': [4, 4, 4, 4],               # Number of layers in each dense block
+    'growth_rate_set': [384, 384, 384, 384],    # Growth rate for each block
+    'reduced_size': 512,                        # Reduced size between blocks
+    'kernel_size_set': [3, 5, 7, 9],            # Kernel sizes for multi-scale processing
+    'dilation_size_set': [1, 2, 4, 8],          # Dilation rates for increasing receptive field
     'squeeze_excitation': True,                 # Whether to use SE blocks for channel attention
-    'dropout': 0.1,
-    'hidden_dim': 256,
+    'dropout': 0.2,
+    'hidden_dim': 512,
 }
 
 # MSTCN configuration
 mstcn_options = {
     'tcn_type': 'multiscale',
-    'hidden_dim': 256,
-    'num_channels': [96, 96, 96, 96],           # 4 layers with 96 channels each (divisible by 3)
-    'kernel_size': [3, 5, 7],                   # 3 kernels for multi-scale processing
-    'dropout': 0.1,
+    'hidden_dim': 512,
+    'num_channels': [384, 384, 384, 384],       # 4 layers with N channels each (divisible by 3)
+    'kernel_size': [3, 5, 7, 9],                   
+    'dropout': 0.2,
     'stride': 1,
     'width_mult': 1.0,
 }
@@ -236,12 +298,12 @@ conformer_options = {
 TEMPORAL_ENCODER = 'conformer'
 
 # %% [markdown]
-# ## 4.2 Visual-Temporal Encoder Initialization and Pretrained Frontend
+# ## 4.2 Model Initialization and Pretrained Frontend
 
 # %%
-# Initialize the visual-temporal encoder first
-print(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal encoder...")
-logging.info(f"Initializing visual-temporal encoder with {TEMPORAL_ENCODER} temporal encoder")
+# Initialize the visual-temporal encoder model first
+print(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder...")
+logging.info(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder")
 
 if TEMPORAL_ENCODER == 'densetcn':
     vt_encoder = VisualTemporalEncoder(
@@ -267,7 +329,7 @@ elif TEMPORAL_ENCODER == 'conformer':
 else:
     raise ValueError(f"Unknown temporal encoder type: {TEMPORAL_ENCODER}")
 
-print("Visual-Temporal encoder initialized successfully.")
+print("vt_encoder model initialized successfully.")
 
 # Load pretrained frontend weights
 print("\nLoading pretrained frontend weights...")
@@ -293,7 +355,6 @@ else:
         param.requires_grad = False
     print("Frontend frozen - parameters will not be updated during training")
     logging.info("Successfully loaded and froze pretrained frontend")
-
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
@@ -338,14 +399,14 @@ e2e_model = E2EVSR(
     },
     ctc_weight=0.3,
     label_smoothing=0.2,
-    beam_size=20,
-    length_bonus_weight=0.0
+    beam_size=10,
+    length_bonus_weight=0.0,
 ).to(device)
 
 
 # Training parameters
 initial_lr = 3e-4
-total_epochs = 75
+total_epochs = 10
 warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
@@ -360,24 +421,9 @@ optimizer = optim.AdamW(
 steps_per_epoch = len(train_loader)
 scheduler = WarmupCosineScheduler(optimizer, warmup_epochs, total_epochs, steps_per_epoch)
 
-# Initialize Weights & Biases for model weight and metric logging
-wandb.init(project="arabic-VisualTemporalEncoder-avsr", config={
-    "learning_rate": initial_lr,
-    "total_epochs": total_epochs,
-    "warmup_epochs": warmup_epochs,
-    "batch_size": train_loader.batch_size,
-    "optimizer": "AdamW",
-    "weight_decay": 0.01,
-    "betas": (0.9, 0.98),
-    "eps": 1e-9,
-    "temporal_encoder": TEMPORAL_ENCODER,
-})
-wandb.watch(e2e_model, log="all", log_freq=10)
-
 print("Selected temporal encoder:", TEMPORAL_ENCODER)
 print(e2e_model)
 logging.info(repr(e2e_model))
-
 # %% [markdown]
 # # 5. Training and Evaluation
 
@@ -427,14 +473,13 @@ def set_rng_state(state):
         cuda_state = cuda_state.cpu().type(torch.ByteTensor)
         torch.cuda.set_rng_state(cuda_state)
 
-
 def train_one_epoch():
     running_loss = 0.0
     e2e_model.train()
 
     for batch_idx, (inputs, input_lengths, labels_flat, label_lengths) in enumerate(train_loader):
         # Print input shape for debugging
-        logging.info(f"Batch {batch_idx+1} - Input shape: {inputs.shape}")
+        logging.info(f"\nBatch {batch_idx+1} - Input shape: {inputs.shape}")
 
         inputs = inputs.to(device)
         input_lengths = input_lengths.to(device)
@@ -454,7 +499,7 @@ def train_one_epoch():
             running_loss += loss.item()
 
             if batch_idx % 10 == 0:
-                logging.info(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
+                logging.info(f"Batch {batch_idx+1}, Loss: {loss.item():.4f}")
 
             if batch_idx % 3 == 0:
                 gc.collect()
@@ -480,9 +525,9 @@ def train_one_epoch():
     return running_loss / len(train_loader) if len(train_loader) > 0 else 0.0
 
 
-def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
+def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, transformer_greedy=True):
     """
-    Evaluate the model on the given data loader using E2EVSR's built-in beam search.
+    Evaluate the model on the given data loader using beam search or greedy decoding.
     """
     e2e_model.eval()
 
@@ -495,8 +540,11 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
     max_samples_to_print = 10
 
-    # Use E2EVSR's beam_search directly
-    bs = e2e_model.beam_search
+    # Setup inference mode: beam search or transformer-greedy
+    if transformer_greedy:
+        mode = 'transformer_greedy'
+    else:
+        mode = 'beam'
 
     # Process all batches in the test loader
     with torch.no_grad():
@@ -520,25 +568,25 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
             try:
                 logging.info(f"Encoder features shape: {encoder_features.shape}")
                 
-                # Run beam search for detailed samples via the model's inference API
-                all_beam_results = e2e_model(inputs, input_lengths)
-                # Extract the best hypothesis per utterance
-                all_nbest_hyps = [hyps_b[0] for hyps_b in all_beam_results]
+                # Run inference: beam search or transformer-greedy
+                if mode == 'transformer_greedy':
+                    all_results = e2e_model.transformer_greedy_search(inputs, input_lengths)
+                else:
+                    all_beam_results = e2e_model(inputs, input_lengths)
+                    # Extract the best hypothesis per utterance and convert to token sequences
+                    all_results = [hyps_b[0].yseq.cpu().numpy() for hyps_b in all_beam_results]
                 
                 logging.info(f"Hybrid decoding completed for batch {i+1}")
-                logging.info(f"Received {len(all_nbest_hyps)} hypotheses sets")
+                logging.info(f"Received {len(all_results)} result sequences using mode {mode}")
                 
                 # Process each batch item
                 for b in range(encoder_features.size(0)):
                     logging.info(f"\nProcessing batch item {b+1}/{encoder_features.size(0)}")
                     sample_count += 1
                     
-                    if b < len(all_nbest_hyps):
-                        # Extract from Hypothesis object
-                        hyp = all_nbest_hyps[b]
-                        score = float(hyp.score)
-                        logging.info(f"Found beam hypothesis for item {b+1} with score {score:.4f}")
-                        pred_indices = hyp.yseq.cpu().numpy()
+                    if b < len(all_results):
+                        # Get predicted token indices
+                        pred_indices = all_results[b]
                     
                     if len(pred_indices) == 0:
                         logging.info("WARNING: Prediction sequence is empty!")
@@ -549,16 +597,21 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                     target_idx = labels_flat[start_idx:end_idx].cpu().numpy()
 
                     # Log debug information for reference and hypothesis tokens
-                    logging.info(f"Debug - Reference tokens ({len(target_idx)} tokens): {target_idx}")
-                    logging.info(f"Debug - Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
+                    logging.info(f"Reference tokens ({len(target_idx)} tokens): {target_idx}")
+                    logging.info(f"Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
                     
-                    # Convert indices to text
-                    pred_text = indices_to_text(pred_indices, idx2char)
+                    # Reference sequence
+                    ref_seq = target_idx.tolist()
+                    # Direct greedy output without cleaning
+                    cleaned_seq = list(pred_indices)
+                    
+                    # compute CER and edit distance on cleaned sequence
+                    cer, edit_dist = compute_cer(ref_seq, cleaned_seq)
+                    pred_text = indices_to_text(cleaned_seq, idx2char)
+                    
                     target_text = indices_to_text(target_idx, idx2char)
                     
-                    # Compute CER and edit distance on token indices
-                    cer, edit_dist = compute_cer(target_idx.tolist(), pred_indices.tolist())
-                    
+                    # Log using the filtered best sequence
                     # Update statistics
                     total_cer += cer
                     
@@ -718,6 +771,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
     for epoch in range(start_epoch, total_epochs):
         print(f"Epoch {epoch + 1}/{total_epochs} - Training...")
         epoch_loss = train_one_epoch()
+        evaluate_model(train_loader, ctc_weight=ctc_weight, epoch=None, print_samples=True)
         
         gc.collect()
         if torch.cuda.is_available():
@@ -745,13 +799,6 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             f"Epoch {epoch + 1}/{total_epochs} - Train Loss: {epoch_loss:.4f}, "
             f"Val Loss: {val_loss:.4f}"
         )
-        # log metrics to Weights & Biases
-        wandb.log({
-            "epoch": epoch + 1,
-            "train_loss": epoch_loss,
-            "val_loss": val_loss,
-            "learning_rate": optimizer.param_groups[0]['lr'],
-        })
         
         # Save checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
@@ -770,7 +817,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             }, checkpoint_path)
             print(f"Checkpoint saved to {checkpoint_path}")
             logging.info(f"Saved checkpoint to {checkpoint_path}")
-            
+        
             # Force synchronize CUDA operations and clear memory after saving
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
@@ -790,13 +837,6 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             }, 'best_model.pth')
             print(f"New best model saved with validation loss: {val_loss:.4f}")
             logging.info(f"New best model saved with validation loss: {val_loss:.4f}")
-        
-        # Log histograms
-        for name, param in e2e_model.named_parameters():
-            wandb.log(
-                {f"histograms/{name}": wandb.Histogram(param.detach().cpu().numpy())},
-                step=epoch
-            )
     
     print("\nTraining completed!")
     print(f"Best validation loss: {best_val_loss:.4f}")

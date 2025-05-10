@@ -17,8 +17,8 @@ from datetime import datetime
 import traceback
 from e2e_vsr import E2EVSR
 from postprocess import *
-from types import SimpleNamespace
 from espnet.scorers.ngram import NgramFullScorer
+import kornia.augmentation as K
 
 os.makedirs('Logs', exist_ok=True)
 log_filename = f'Logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
@@ -29,7 +29,7 @@ for h in logging.root.handlers[:]:
 logging.basicConfig(
     filename=log_filename,
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(message)s',
     encoding='utf-8',
     force=True 
 )
@@ -224,9 +224,9 @@ X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/30
 
 # %%
 # Defining the video dataloaders (train, validation, test)
-train_dataset = VideoDataset(X_train, y_train, transform=data_transforms)
-val_dataset = VideoDataset(X_val, y_val, transform=data_transforms)
-test_dataset = VideoDataset(X_test, y_test, transform=data_transforms)
+train_dataset = VideoDataset(X_train, y_train, transform=train_transform)
+val_dataset = VideoDataset(X_val, y_val, transform=val_transform)
+test_dataset = VideoDataset(X_test, y_test, transform=val_transform)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
 val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
@@ -406,7 +406,7 @@ e2e_model = E2EVSR(
 
 # Training parameters
 initial_lr = 3e-4
-total_epochs = 1
+total_epochs = 10
 warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
@@ -479,7 +479,7 @@ def train_one_epoch():
 
     for batch_idx, (inputs, input_lengths, labels_flat, label_lengths) in enumerate(train_loader):
         # Print input shape for debugging
-        logging.info(f"Batch {batch_idx+1} - Input shape: {inputs.shape}")
+        logging.info(f"\nBatch {batch_idx+1} - Input shape: {inputs.shape}")
 
         inputs = inputs.to(device)
         input_lengths = input_lengths.to(device)
@@ -499,7 +499,7 @@ def train_one_epoch():
             running_loss += loss.item()
 
             if batch_idx % 10 == 0:
-                logging.info(f"Batch {batch_idx}, Loss: {loss.item():.4f}")
+                logging.info(f"Batch {batch_idx+1}, Loss: {loss.item():.4f}")
 
             if batch_idx % 3 == 0:
                 gc.collect()
@@ -594,8 +594,8 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True):
                     target_idx = labels_flat[start_idx:end_idx].cpu().numpy()
 
                     # Log debug information for reference and hypothesis tokens
-                    logging.info(f"Debug - Reference tokens ({len(target_idx)} tokens): {target_idx}")
-                    logging.info(f"Debug - Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
+                    logging.info(f"Reference tokens ({len(target_idx)} tokens): {target_idx}")
+                    logging.info(f"Hypothesis tokens ({len(pred_indices)} tokens): {pred_indices}")
                     
                     # apply only unsupervised cleaning
                     ref_seq = target_idx.tolist()

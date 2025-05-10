@@ -102,10 +102,10 @@ def compute_cer(reference_indices, hypothesis_indices):
     hyp_tokens = hypothesis_indices
 
     try:
-        logging.info(f"Debug - Reference tokens ({len(ref_tokens)}): {ref_tokens}")
-        logging.info(f"Debug - Hypothesis tokens ({len(hyp_tokens)}): {hyp_tokens}")
+        logging.info(f"Reference tokens ({len(ref_tokens)}): {ref_tokens}")
+        logging.info(f"Hypothesis tokens ({len(hyp_tokens)}): {hyp_tokens}")
     except UnicodeEncodeError:
-        logging.info("Debug - Token indices omitted due to encoding issues")
+        logging.info("Token indices omitted due to encoding issues")
 
     edit_distance = editdistance.eval(ref_tokens, hyp_tokens)
     cer = edit_distance / max(len(ref_tokens), 1)
