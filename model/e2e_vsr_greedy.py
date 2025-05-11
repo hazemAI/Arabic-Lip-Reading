@@ -5,20 +5,17 @@ from encoders.encoder_models import VisualTemporalEncoder
 from espnet.decoder.transformer_decoder import TransformerDecoder
 from espnet.transformer.mask import subsequent_mask
 from espnet.transformer.add_sos_eos import add_sos_eos
-from espnet.batch_beam_search import BatchBeamSearch
-from espnet.scorers.length_bonus import LengthBonus
 from espnet.transformer.label_smoothing_loss import LabelSmoothingLoss
 from espnet.nets_utils import make_non_pad_mask
-from espnet.e2e_asr_conformer import E2E as BaseE2E
-import logging
-from espnet.scorers.ctc import CTCPrefixScorer
 from espnet.ctc import CTC
 from torch.nn.utils.rnn import pad_sequence
+from espnet.e2e_asr_conformer import E2E as BaseE2E
+import logging
 
 class E2EVSR(BaseE2E):
     """
     End-to-end AVSR system combining frontend, optional temporal encoder,
-    CTC head, transformer decoder with label-smoothing, and beam search.
+    CTC head, and transformer decoder with label-smoothing using greedy decoding.
     """
     def __init__(
         self,
@@ -33,8 +30,6 @@ class E2EVSR(BaseE2E):
         dec_options,
         ctc_weight=0.3,
         label_smoothing=0.2,
-        beam_size=20,
-        length_bonus_weight=0.0,
     ):
         # 1) initialize BaseE2E: sets up CTC prefix scorer, LabelSmoothingLoss, beam search, etc.
         super().__init__(odim=dec_vocab_size, modality='video',
@@ -88,28 +83,6 @@ class E2EVSR(BaseE2E):
         self.pad = pad
         self.ctc_weight = ctc_weight
         self.token_list = token_list  # store token_list for forward inference
-        # Build beam search wrapper
-        scorers = {
-            'decoder': self.decoder,
-            'ctc':    CTCPrefixScorer(self.ctc, self.eos),
-            'length_bonus': LengthBonus(dec_vocab_size),
-        }
-        weights = {
-            'decoder':      1.0 - ctc_weight,
-            'ctc':          ctc_weight,
-            'length_bonus': length_bonus_weight,
-        }
-        
-        self.beam_search = BatchBeamSearch(
-            scorers=scorers,
-            weights=weights,
-            beam_size=beam_size,
-            vocab_size=dec_vocab_size,
-            sos=sos,
-            eos=eos,
-            token_list=token_list,
-            pre_beam_score_key=None if ctc_weight == 1.0 else "decoder",
-        )
 
     def forward(self, x, x_lengths, ys=None, ys_lengths=None):
         # Debug: trace shapes at each stage
@@ -142,18 +115,9 @@ class E2EVSR(BaseE2E):
         feats = hidden_feats
         # Log-probabilities for CTC based on encoder-specific logits
         logp_ctc = F.log_softmax(ctc_input, dim=2)
-        # Inference mode (no teacher forcing): batch inference per utterance
+        # Inference mode (no teacher forcing): use transformer greedy decoding
         if ys is None:
-            results = []
-            # feats: (B, T, D)
-            for b in range(feats.size(0)):
-                # Slice to actual length
-                T_b = x_lengths[b].item()
-                feat_b = feats[b, :T_b]  # shape (T_b, D)
-                # Perform beam search for this utterance
-                hyps_b = self.beam_search(feat_b)
-                results.append(hyps_b)
-            return results
+            return self.transformer_greedy_search(x, x_lengths)
         # Training: CTC loss
         ctc_in = logp_ctc.transpose(0, 1)  # (T, B, CTC_vocab_size)
         loss_ctc = self.ctc_loss(ctc_in, ys, x_lengths, ys_lengths)

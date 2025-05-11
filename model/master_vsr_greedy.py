@@ -33,6 +33,12 @@ logging.basicConfig(
     encoding='utf-8',
     force=True 
 )
+
+# Helper to print and log in one call
+def log_print(msg):
+    print(msg)
+    logging.info(msg)
+
 # %% [markdown]
 # # 2. Initialize the seed and the device
 
@@ -91,8 +97,7 @@ mapped_tokens = {}
 for i, c in enumerate(sorted(tokens, reverse=True), 1):
     mapped_tokens[c] = i
 
-print(mapped_tokens)
-logging.info(mapped_tokens)
+log_print(mapped_tokens)
 # %% [markdown]
 # ## 3.2. Video Dataset Class
 # %%
@@ -209,7 +214,7 @@ for vdir in video_dirs:
         base = stem.split('_')[0]
         videos.append(os.path.join(vdir, fname))
         labels.append(os.path.join(labels_dir, base + ".csv"))
-print(f"Loaded {len(videos)} video-label pairs")
+log_print(f"Loaded {len(videos)} video-label pairs")
 
 # %% [markdown]
 # ## 3.4. Split the dataset
@@ -231,8 +236,8 @@ train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory
 val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 
-print(f"Number of train samples: {len(train_loader.dataset)}")
-print(f"Number of validation samples: {len(val_loader.dataset)}")
+log_print(f"Number of train samples: {len(train_loader.dataset)}")
+log_print(f"Number of validation samples: {len(val_loader.dataset)}")
 
 # %% [markdown]
 # # 4. Model Configuration
@@ -249,9 +254,9 @@ idx2char = {v: k for k, v in mapped_tokens.items()}
 idx2char[0] = ""  # Blank token for CTC
 idx2char[sos_token_idx] = "<sos>"  # SOS token
 idx2char[eos_token_idx] = "<eos>"  # EOS token
-print(f"Total vocabulary size: {full_vocab_size}")
-print(f"SOS token index: {sos_token_idx}")
-print(f"EOS token index: {eos_token_idx}")
+log_print(f"Total vocabulary size: {full_vocab_size}")
+log_print(f"SOS token index: {sos_token_idx}")
+log_print(f"EOS token index: {eos_token_idx}")
 
 
 # %% [markdown]
@@ -302,8 +307,7 @@ TEMPORAL_ENCODER = 'conformer'
 
 # %%
 # Initialize the visual-temporal encoder model first
-print(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder...")
-logging.info(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder")
+log_print(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder...")
 
 if TEMPORAL_ENCODER == 'densetcn':
     vt_encoder = VisualTemporalEncoder(
@@ -329,39 +333,35 @@ elif TEMPORAL_ENCODER == 'conformer':
 else:
     raise ValueError(f"Unknown temporal encoder type: {TEMPORAL_ENCODER}")
 
-print("vt_encoder model initialized successfully.")
+log_print("vt_encoder model initialized successfully.")
 
 # Load pretrained frontend weights
-print("\nLoading pretrained frontend weights...")
-logging.info("Loading pretrained frontend weights")
+log_print("\nLoading pretrained frontend weights...")
 
 pretrained_path = 'encoders/pretrained_visual_frontend.pth'
-pretrained_weights = torch.load(pretrained_path, map_location=device)
-print(f"Loaded pretrained weights from {pretrained_path}")
+pretrained_weights = torch.load(pretrained_path, map_location=device, weights_only=True)
 
 # Load weights into frontend
 vt_encoder.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=False)
-print("Successfully loaded pretrained weights")
+log_print(f"Loaded pretrained weights from {pretrained_path}")
 
 # Flag to choose whether to fine-tune the frontend or freeze it
 TRAIN_FRONTEND = True
 
 # Conditionally freeze or fine-tune the frontend
 if TRAIN_FRONTEND:
-    print("Frontend parameters will be updated during training")
-    logging.info("Frontend parameters will be updated during training")
+    log_print("Frontend parameters will be updated during training")
 else:
     for param in vt_encoder.visual_frontend.parameters():
         param.requires_grad = False
-    print("Frontend frozen - parameters will not be updated during training")
-    logging.info("Successfully loaded and froze pretrained frontend")
+    log_print("Frontend frozen - parameters will not be updated during training")
 
 # %% [markdown]
 # ## 4.3 Decoder and Training Setup
 
 # %%
 # Initialize the E2EVSR end-to-end model
-print("\nInitializing E2EVSR end-to-end model...")
+log_print("\nInitializing E2EVSR end-to-end model...")
 # Determine hidden_dim for E2EVSR based on the chosen temporal encoder
 if TEMPORAL_ENCODER == 'densetcn':
     e2e_hidden_dim = densetcn_options['hidden_dim']
@@ -399,14 +399,12 @@ e2e_model = E2EVSR(
     },
     ctc_weight=0.3,
     label_smoothing=0.2,
-    beam_size=10,
-    length_bonus_weight=0.0,
 ).to(device)
 
 
 # Training parameters
 initial_lr = 3e-4
-total_epochs = 10
+total_epochs = 75
 warmup_epochs = 5
 
 # Initialize AdamW optimizer with weight decay on the E2E model
@@ -421,9 +419,8 @@ optimizer = optim.AdamW(
 steps_per_epoch = len(train_loader)
 scheduler = WarmupCosineScheduler(optimizer, warmup_epochs, total_epochs, steps_per_epoch)
 
-print("Selected temporal encoder:", TEMPORAL_ENCODER)
-print(e2e_model)
-logging.info(repr(e2e_model))
+log_print("Selected temporal encoder: " + TEMPORAL_ENCODER)
+log_print(repr(e2e_model))
 # %% [markdown]
 # # 5. Training and Evaluation
 
@@ -440,12 +437,11 @@ def get_rng_state():
         
         # Validate RNG state types
         if not isinstance(state['torch'], torch.Tensor):
-            print("Warning: torch RNG state is not a tensor, creating a valid state")
+            log_print("Warning: torch RNG state is not a tensor, creating a valid state")
             state['torch'] = torch.random.get_rng_state()
             
     except Exception as e:
-        print(f"Warning: Error capturing RNG state: {str(e)}. Using default state.")
-        logging.warning(f"Error capturing RNG state: {str(e)}. Using default state.")
+        log_print(f"Warning: Error capturing RNG state: {str(e)}. Using default state.")
         # Create minimal valid state
         state = {
             'torch': torch.random.get_rng_state(),
@@ -507,14 +503,14 @@ def train_one_epoch():
                 logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
                 
         except Exception as e:
-            logging.error(f"Error in training loop for batch {batch_idx}: {str(e)}") 
-            logging.error(f"Error type: {type(e).__name__}")
+            log_print(f"Error in training loop for batch {batch_idx}: {str(e)}") 
+            log_print(f"Error type: {type(e).__name__}")
             import traceback
             traceback_str = traceback.format_exc()
-            logging.error(traceback_str)
+            log_print(traceback_str)
 
-            print(f"Error in batch {batch_idx}: {str(e)}")
-            print(f"--- Skipping Batch {batch_idx+1} due to error ---")
+            log_print(f"Error in batch {batch_idx}: {str(e)}")
+            log_print(f"--- Skipping Batch {batch_idx+1} due to error ---")
             # Ensure gradients are cleared if error happened after loss calculation but before optimizer step
             optimizer.zero_grad(set_to_none=True)
             gc.collect()
@@ -525,9 +521,9 @@ def train_one_epoch():
     return running_loss / len(train_loader) if len(train_loader) > 0 else 0.0
 
 
-def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, transformer_greedy=True):
+def evaluate_model(data_loader, epoch=None, print_samples=True):
     """
-    Evaluate the model on the given data loader using beam search or greedy decoding.
+    Evaluate the model on the given data loader using greedy decoding.
     """
     e2e_model.eval()
 
@@ -540,11 +536,8 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
     show_samples = (epoch is None or epoch == 0 or (epoch+1) % 5 == 0) and print_samples
     max_samples_to_print = 10
 
-    # Setup inference mode: beam search or transformer-greedy
-    if transformer_greedy:
-        mode = 'transformer_greedy'
-    else:
-        mode = 'beam'
+    # Inference mode: transformer greedy decoding only
+    mode = 'transformer_greedy'
 
     # Process all batches in the test loader
     with torch.no_grad():
@@ -561,22 +554,16 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
             # Set output_lengths to match the actual encoder output length
             output_lengths = torch.full((encoder_features.size(0),), encoder_features.size(1), dtype=torch.long, device=device)
             
-            logging.info(f"\nRunning hybrid CTC/Attention decoding for batch {i+1}...")
             if show_samples and i == 0:
-                print(f"\nRunning hybrid CTC/Attention decoding for validation...")
+                log_print(f"\nRunning greedy decoding for validation...")
             
             try:
                 logging.info(f"Encoder features shape: {encoder_features.shape}")
                 
-                # Run inference: beam search or transformer-greedy
-                if mode == 'transformer_greedy':
-                    all_results = e2e_model.transformer_greedy_search(inputs, input_lengths)
-                else:
-                    all_beam_results = e2e_model(inputs, input_lengths)
-                    # Extract the best hypothesis per utterance and convert to token sequences
-                    all_results = [hyps_b[0].yseq.cpu().numpy() for hyps_b in all_beam_results]
+                # Run greedy decoding
+                all_results = e2e_model.transformer_greedy_search(inputs, input_lengths)
                 
-                logging.info(f"Hybrid decoding completed for batch {i+1}")
+                logging.info(f"Greedy decoding completed for batch {i+1}")
                 logging.info(f"Received {len(all_results)} result sequences using mode {mode}")
                 
                 # Process each batch item
@@ -589,7 +576,7 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
                         pred_indices = all_results[b]
                     
                     if len(pred_indices) == 0:
-                        logging.info("WARNING: Prediction sequence is empty!")
+                        log_print("WARNING: Prediction sequence is empty!")
                     
                     # Get target indices
                     start_idx = sum(label_lengths[:b].cpu().tolist()) if b > 0 else 0
@@ -665,8 +652,8 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
                     logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
             
             except Exception as e:
-                logging.error(f"Error during hybrid decoding: {str(e)}")
-                logging.error(traceback.format_exc())
+                log_print(f"Error during greedy decoding: {str(e)}")
+                log_print(traceback.format_exc())
                 raise
         
         # Write summary statistics
@@ -674,14 +661,10 @@ def evaluate_model(data_loader, ctc_weight=0.3, epoch=None, print_samples=True, 
         avg_cer = total_cer / n_samples
         
         # Always print summary statistics to console
-        print("\n=== Summary Statistics ===")
-        print(f"Total samples: {n_samples}")
-        print(f"Average CER: {avg_cer:.4f}\n")
+        log_print("\n=== Summary Statistics ===")
+        log_print(f"Total samples: {n_samples}")
+        log_print(f"Average CER: {avg_cer:.4f}\n")
         
-        # Log summary statistics as well
-        logging.info("\n=== Summary Statistics ===")
-        logging.info(f"Total samples: {n_samples}")
-        logging.info(f"Average CER: {avg_cer:.4f}")
 
 # --------------------------------------------------------------------------
 def evaluate_loss(data_loader):
@@ -711,8 +694,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
     
     # Load checkpoint if provided
     if checkpoint_path and os.path.exists(checkpoint_path):
-        print(f"Loading checkpoint from {checkpoint_path}...")
-        logging.info(f"Loading checkpoint from {checkpoint_path}")
+        log_print(f"Loading checkpoint from {checkpoint_path}...")
         
         try:
             checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -720,13 +702,12 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             # Load vt_encoder checkpoint non-strictly (ignoring mismatched keys)
             vt_res = vt_encoder.load_state_dict(
                 checkpoint['vt_encoder_state_dict'], strict=False)
-            logging.info(f"Loaded vt_encoder checkpoint (non-strict): missing {vt_res.missing_keys}, unexpected {vt_res.unexpected_keys}")
+            log_print(f"Loaded vt_encoder checkpoint (non-strict): missing {vt_res.missing_keys}, unexpected {vt_res.unexpected_keys}")
             
             # Load E2E model checkpoint non-strictly (ignoring mismatched keys)
             dec_res = e2e_model.load_state_dict(
                 checkpoint['e2e_model_state_dict'], strict=False)
-            logging.info(f"Loaded e2e_model checkpoint (non-strict): missing {dec_res.missing_keys}, unexpected {dec_res.unexpected_keys}")
-            print("Successfully loaded checkpoint (non-strict)")
+            log_print(f"Loaded e2e_model checkpoint (non-strict): missing {dec_res.missing_keys}, unexpected {dec_res.unexpected_keys}")
             
             # Load optimizer state
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -740,28 +721,22 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
                 try:
                     set_rng_state(checkpoint['rng_state'])
                     # Success
-                    print("RNG state restored successfully")
-                    logging.info("RNG state restored successfully")
+                    log_print("RNG state restored successfully")
                 except Exception as e:
-                    print(f"Warning: Could not restore RNG state: {e}. Continuing with current RNG state.")
-                    logging.warning(f"Could not restore RNG state: {e}")
+                    log_print(f"Warning: Could not restore RNG state: {e}. Continuing with current RNG state.")
             
-            print(f"Checkpoint loaded successfully. Resuming from epoch {start_epoch}")
-            logging.info(f"Checkpoint loaded successfully. Resuming from epoch {start_epoch}")
+            log_print(f"Checkpoint loaded successfully. Resuming from epoch {start_epoch}")
         
         except Exception as e:
-            print(f"Error loading checkpoint: {str(e)}")
-            logging.error(f"Error loading checkpoint: {str(e)}")
-            print("Aborting training due to checkpoint loading failure.")
+            log_print(f"Error loading checkpoint: {str(e)}")
+            log_print("Aborting training due to checkpoint loading failure.")
             raise
         
     else:
         if checkpoint_path:
-            print(f"Checkpoint file {checkpoint_path} not found. Starting training from scratch.")
-            logging.info(f"Checkpoint file {checkpoint_path} not found. Starting training from scratch.")
+            log_print(f"Checkpoint file {checkpoint_path} not found. Starting training from scratch.")
         else:
-            print("No checkpoint specified. Starting training from scratch.")
-            logging.info("No checkpoint specified. Starting training from scratch.")
+            log_print("No checkpoint specified. Starting training from scratch.")
     
     print(f"Starting training for {total_epochs} epochs")
     print(f"Logs will be saved to {log_filename}")
@@ -771,8 +746,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
     for epoch in range(start_epoch, total_epochs):
         print(f"Epoch {epoch + 1}/{total_epochs} - Training...")
         epoch_loss = train_one_epoch()
-        evaluate_model(train_loader, ctc_weight=ctc_weight, epoch=None, print_samples=True)
-        
+    
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -781,7 +755,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         print(f"Epoch {epoch + 1}/{total_epochs} - Evaluating...")
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
-        # Then compute decoding metrics (CER) via beam search
+        # Then compute decoding metrics (CER) via greedy decoding
         evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
@@ -789,14 +763,8 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             torch.cuda.empty_cache()
             logging.info(f"GPU memory after evaluation: {torch.cuda.memory_allocated()/1e6:.2f}MB")
         
-        logging.info(
+        log_print(
             f"Epoch {epoch + 1}/{total_epochs}, Train Loss: {epoch_loss:.4f}, "
-            f"Val Loss: {val_loss:.4f}"
-        )
-        
-        # Print summary every epoch to console
-        print(
-            f"Epoch {epoch + 1}/{total_epochs} - Train Loss: {epoch_loss:.4f}, "
             f"Val Loss: {val_loss:.4f}"
         )
         
@@ -815,8 +783,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
                 'rng_state': rng_state,
                 'best_val_loss': best_val_loss
             }, checkpoint_path)
-            print(f"Checkpoint saved to {checkpoint_path}")
-            logging.info(f"Saved checkpoint to {checkpoint_path}")
+            log_print(f"Checkpoint saved to {checkpoint_path}")
         
             # Force synchronize CUDA operations and clear memory after saving
             if torch.cuda.is_available():
@@ -835,13 +802,12 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
                 'rng_state': rng_state,
                 'best_val_loss': best_val_loss
             }, 'best_model.pth')
-            print(f"New best model saved with validation loss: {val_loss:.4f}")
-            logging.info(f"New best model saved with validation loss: {val_loss:.4f}")
+            log_print(f"New best model saved with validation loss: {val_loss:.4f}")
     
-    print("\nTraining completed!")
-    print(f"Best validation loss: {best_val_loss:.4f}")
-    print(f"Final checkpoint saved to: checkpoint_epoch_{total_epochs}.pth")
-    print(f"Best model saved to: best_model.pth")
+    log_print("\nTraining completed!")
+    log_print(f"Best validation loss: {best_val_loss:.4f}")
+    log_print(f"Final checkpoint saved to: checkpoint_epoch_{total_epochs}.pth")
+    log_print(f"Best model saved to: best_model.pth")
 
     
 if __name__ == '__main__':
