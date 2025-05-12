@@ -16,8 +16,6 @@ import logging
 from datetime import datetime
 import traceback
 from e2e_vsr_greedy import E2EVSR
-from postprocess import *
-from espnet.scorers.ngram import NgramFullScorer
 import kornia.augmentation as K
 
 os.makedirs('Logs', exist_ok=True)
