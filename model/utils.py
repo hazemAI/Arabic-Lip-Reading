@@ -63,6 +63,22 @@ def compute_cer(reference_indices, hypothesis_indices):
     cer = edit_distance / max(len(ref_tokens), 1)
     return cer, edit_distance
 
+def indices_to_text_word(indices, idx2token):
+    """
+    Converts a list of word indices to a space-separated string using the reverse vocabulary mapping.
+    """
+    return ' '.join([idx2token.get(i, '') for i in indices])
+
+
+def compute_wer(reference_indices, hypothesis_indices):
+    """
+    Computes Word Error Rate (WER) directly using token indices.
+    Returns a tuple of (WER, edit_distance).
+    """
+    # Calculate edit distance between reference and hypothesis tokens
+    edit_distance = editdistance.eval(reference_indices, hypothesis_indices)
+    wer = edit_distance / max(len(reference_indices), 1)
+    return wer, edit_distance
 
 class WarmupCosineScheduler(torch.optim.lr_scheduler._LRScheduler):
     def __init__(

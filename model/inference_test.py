@@ -7,7 +7,7 @@ from PIL import Image
 import cv2
 from utils import *
 import sys
-from e2e_vsr_greedy import E2EVSR
+from e2e_vsr import E2EVSR
 import kornia.augmentation as K
 import google.generativeai as genai
 
