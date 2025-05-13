@@ -13,20 +13,29 @@ import google.generativeai as genai
 
 
 
-# —— Static token mapping from trained VSR model ———
-# Load tokens map from dia_tokens.txt
+# Local extract_label function
+def extract_label(file):
+    sentence = pd.read_csv(file)
+    label = []
+    diacritics = {'\u064B','\u064C','\u064D','\u064E','\u064F','\u0650','\u0651','\u0652','\u06E2'}
+    for word in sentence.word:
+        for char in word:
+            if char not in diacritics:
+                label.append(char)
+            else:
+                label[-1] += char
+    return label
+
+# Build token-to-index mapping from training CSVs
 mapped_tokens = {}
-tokens_path = os.path.join(os.path.dirname(__file__), "dia_tokens.txt")
-with open(tokens_path, encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        key, val = line.split(':')
-        key = key.strip().strip("'\"")
-        val = int(val.strip())
-        mapped_tokens[key] = val
-# Special tokens
+dataset_csv_dir = "../Dataset/Csv (with Diacritics)"
+tokens = set()
+for fname in os.listdir(dataset_csv_dir):
+    if not fname.lower().endswith('.csv'):
+        continue
+    tokens.update(extract_label(os.path.join(dataset_csv_dir, fname)))
+for idx, tok in enumerate(sorted(tokens, reverse=True), start=1):
+    mapped_tokens[tok] = idx
 mapped_tokens[""] = 0
 mapped_tokens["<sos>"] = max(mapped_tokens.values()) + 1
 mapped_tokens["<eos>"] = mapped_tokens["<sos>"] + 1
@@ -41,7 +50,7 @@ def llm_cleanup(text, api_key=None, model_name='learnlm-2.0-flash-experimental')
     if not genai or not api_key:
         return text
     genai.configure(api_key=api_key)
-    prompt = f"""Clean this Arabic lipread output: '{text}'. Remove gibberish and repeated parts. Make sure words are separated by spaces.
+    prompt = f"""You must respond only with the cleaned text and nothing else. Clean this Arabic lipread output: '{text}'. Remove gibberish and repeated parts. Make sure words are separated by spaces.
     """
     response = genai.chat.create(
         model=model_name,
@@ -98,8 +107,8 @@ class CenterCropNormalize:
 
 if __name__=='__main__':
     # Default directories and options
-    test_dir = os.path.join(os.path.dirname(__file__), "../test_data/Preprocessed_Videos")
-    csv_dir = os.path.join(os.path.dirname(__file__), "../test_data/Csv")
+    test_dir = "../test_data/Preprocessed_Video"
+    csv_dir = "../test_data/Csv"
     output_file = 'inference_output.txt'
     use_llm = False
     api_key = 'AIzaSyDdIEi4YhuO4zf0xiwQ5NIi20QQ4mQmlIk'
@@ -186,6 +195,8 @@ if __name__=='__main__':
 
     with open(output_file,'w',encoding='utf-8') as fout:
         sample_id = 0
+        total_cer = 0.0
+        cer_count = 0
         for frames, length, fname in dl:
             frames = frames.to(device)
             length = length.to(device)
@@ -196,24 +207,22 @@ if __name__=='__main__':
             if use_llm:
                 text = llm_cleanup(text, api_key=api_key)
             sample_id += 1
-            # Unpack filename from batch tuple if needed
             if isinstance(fname, (list, tuple)):
                 fname = fname[0]
-            # Attempt to derive corresponding CSV path and extract reference sequence and metrics
             base, _ = os.path.splitext(fname)
-            # Lookup CSV in test_data/Csv
             csv_path = os.path.join(csv_dir, base + '.csv')
-            # Always write and print sample ID and prediction
             fout.write(f"Sample {sample_id}:\n")
             fout.write(f"Predicted text: {text}\n")
             print(f"Sample {sample_id} ({fname}):")
             print(f"Predicted text: {text}")
             if os.path.exists(csv_path):
                 try:
-                    df = pd.read_csv(csv_path)
-                    ref_text = ''.join(df.word.tolist())
-                    ref_indices = [mapped_tokens.get(c, mapped_tokens.get('', 0)) for c in ref_text]
+                    tokens = extract_label(csv_path)
+                    ref_text = ''.join(tokens)
+                    ref_indices = [mapped_tokens.get(t, mapped_tokens.get('', 0)) for t in tokens]
                     cer, edit_dist = compute_cer(ref_indices, seq)
+                    total_cer += cer
+                    cer_count += 1
                     fout.write(f"Target text: {ref_text}\n")
                     fout.write(f"Edit distance: {edit_dist}\n")
                     fout.write(f"CER: {cer:.4f}\n\n")
@@ -226,4 +235,8 @@ if __name__=='__main__':
             else:
                 fout.write("Target text: [unavailable]\n\n")
                 print("Target text: [unavailable]\n")
+        if cer_count > 0:
+            avg_cer = total_cer / cer_count
+            fout.write(f"Average CER: {avg_cer:.4f}\n")
+            print(f"Average CER: {avg_cer:.4f}")
     print(f"Inference complete. Results in {output_file}") 
