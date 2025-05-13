@@ -62,39 +62,16 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # %%
 def extract_label(file):
-    label = []
-    diacritics = {
-        '\u064B',  # Fathatan
-        '\u064C',  # Dammatan
-        '\u064D',  # Kasratan
-        '\u064E',  # Fatha
-        '\u064F',  # Damma
-        '\u0650',  # Kasra
-        '\u0651',  # Shadda
-        '\u0652',  # Sukun
-        '\u06E2',  # Small High meem
-    }
-
     sentence = pd.read_csv(file)
-    for word in sentence.word:
-        for char in word:
-            if char not in diacritics:
-                label.append(char)
-            else:
-                label[-1] += char
-
-    return label
-
-tokens = set()
-for i in os.listdir('../Dataset/Csv (with Diacritics)'):
-    file = '../Dataset/Csv (with Diacritics)/' + i
-    label = extract_label(file)
-    tokens.update(label)
+    return sentence['word'].tolist()
 
 mapped_tokens = {}
-for i, c in enumerate(sorted(tokens, reverse=True), 1):
-    mapped_tokens[c] = i
-
+mapping_file = '../Dataset/Word_Dataset/words.txt'
+with open(mapping_file, 'r', encoding='utf-8') as f:
+    for idx, line in enumerate(f, start=1):
+        word = line.strip()
+        mapped_tokens[word] = idx
+log_print(f"Loaded {len(mapped_tokens)} word tokens")
 log_print(mapped_tokens)
 # %% [markdown]
 # ## 3.2. Video Dataset Class
@@ -190,14 +167,11 @@ class VideoDataset(torch.utils.data.Dataset):
 
 # %%
 # Load videos and labels from all original and augmented video folders
-dataset_dir = "../Dataset"
-labels_dir = os.path.join(dataset_dir, "Csv (with Diacritics)")
+dataset_dir = "../Dataset/Word_Dataset"
+labels_dir = os.path.join(dataset_dir, "Csv (Word)")
 videos, labels = [], []
 # Specify exactly which preprocessed video folders to include
-preprocessed_dirs = [
-    "Preprocessed_Video",
-    "Preprocessed_Video_flip",
-]
+preprocessed_dirs = ["Preprocessed_Video_Word"]
 video_dirs = sorted([
     os.path.join(dataset_dir, d)
     for d in preprocessed_dirs
@@ -219,31 +193,8 @@ log_print(f"Loaded {len(videos)} video-label pairs")
 
 # %%
 # Split the dataset into training and validation
-X_train, y_train = videos, labels
-splits_root = '../test_data/splits'
-val_vid_dir = splits_root + '/Preprocessed_video/val'
-val_csv_dir = splits_root + '/Csv/val'
-X_val = sorted([
-    os.path.join(val_vid_dir, f)
-    for f in os.listdir(val_vid_dir)
-    if f.lower().endswith('.mp4')
-])
-y_val = sorted([
-    os.path.join(val_csv_dir, os.path.splitext(f)[0] + '.csv')
-    for f in os.listdir(val_vid_dir)
-    if f.lower().endswith('.mp4')
-])
-
-# Subsample sample sets for quick testing: adjust numbers below
-SUBSAMPLE_TRAIN = 30  
-SUBSAMPLE_VAL = 5     
-if 0 < SUBSAMPLE_TRAIN < len(X_train):
-    X_train = X_train[:SUBSAMPLE_TRAIN]
-    y_train = y_train[:SUBSAMPLE_TRAIN]
-if 0 < SUBSAMPLE_VAL < len(X_val):
-    X_val = X_val[:SUBSAMPLE_VAL]
-    y_val = y_val[:SUBSAMPLE_VAL]
-log_print(f"Subsampled to {len(X_train)} train and {len(X_val)} validation samples")
+X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=5900/5920, random_state=seed)
+X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/20, random_state=seed)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -269,10 +220,10 @@ eos_token_idx = base_vocab_size + 1  # This places EOS after SOS
 full_vocab_size = base_vocab_size + 2  # +2 for SOS and EOS tokens
 
 # Build reverse mapping for decoding
-idx2char = {v: k for k, v in mapped_tokens.items()}
-idx2char[0] = ""  # Blank token for CTC
-idx2char[sos_token_idx] = "<sos>"  # SOS token
-idx2char[eos_token_idx] = "<eos>"  # EOS token
+idx2token = {v: k for k, v in mapped_tokens.items()}
+idx2token[0] = ""  # Blank token for CTC
+idx2token[sos_token_idx] = "<sos>"  # SOS token
+idx2token[eos_token_idx] = "<eos>"  # EOS token
 log_print(f"Total vocabulary size: {full_vocab_size}")
 log_print(f"SOS token index: {sos_token_idx}")
 log_print(f"EOS token index: {eos_token_idx}")
@@ -395,7 +346,7 @@ e2e_model = E2EVSR(
     encoder_type=TEMPORAL_ENCODER,
     ctc_vocab_size=base_vocab_size,
     dec_vocab_size=full_vocab_size,
-    token_list=[idx2char[i] for i in range(full_vocab_size)],
+    token_list=[idx2token[i] for i in range(full_vocab_size)],
     sos=sos_token_idx,
     eos=eos_token_idx,
     pad=0,
@@ -547,7 +498,7 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
     e2e_model.eval()
 
     # Track statistics
-    total_cer = 0
+    total_wer = 0
     sample_count = 0
     all_predictions = []
 
@@ -611,22 +562,22 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                     # Direct greedy output without cleaning
                     cleaned_seq = list(pred_indices)
                     
-                    # compute CER and edit distance on cleaned sequence
-                    cer, edit_dist = compute_cer(ref_seq, cleaned_seq)
-                    pred_text = indices_to_text(cleaned_seq, idx2char)
+                    # compute WER and edit distance on cleaned sequence
+                    wer, edit_dist = compute_wer(ref_seq, cleaned_seq)
+                    pred_text = indices_to_text_word(cleaned_seq, idx2token)
                     
-                    target_text = indices_to_text(target_idx, idx2char)
+                    target_text = indices_to_text_word(target_idx, idx2token)
                     
                     # Log using the filtered best sequence
                     # Update statistics
-                    total_cer += cer
+                    total_wer += wer
                     
                     # Store prediction details
                     all_predictions.append({
                         'sample_id': sample_count,
                         'pred_text': pred_text,
                         'target_text': target_text,
-                        'cer': cer,
+                        'wer': wer,
                         'edit_distance': edit_dist,
                     })
                     
@@ -643,7 +594,7 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                         logging.info(f"Target indices: {target_idx}")
                         
                     logging.info(f"Edit distance: {edit_dist}")
-                    logging.info(f"CER: {cer:.4f}")
+                    logging.info(f"WER: {wer:.4f}")
                     logging.info("-" * 50)
                     
                     # Print to console if this is a sample we should show
@@ -658,7 +609,7 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                             print("Target text: [Contains characters that can't be displayed in console]")
                             
                         print(f"Edit distance: {edit_dist}")
-                        print(f"CER: {cer:.4f}")
+                        print(f"WER: {wer:.4f}")
                         print("-" * 50)
 
                 # Clean up tensors
@@ -677,12 +628,12 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
         
         # Write summary statistics
         n_samples = len(data_loader.dataset)
-        avg_cer = total_cer / n_samples
+        avg_wer = total_wer / n_samples
         
         # Always print summary statistics to console
         log_print("\n=== Summary Statistics ===")
         log_print(f"Total samples: {n_samples}")
-        log_print(f"Average CER: {avg_cer:.4f}\n")
+        log_print(f"Average WER: {avg_wer:.4f}\n")
         
 
 # --------------------------------------------------------------------------
@@ -774,7 +725,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         print(f"Epoch {epoch + 1}/{total_epochs} - Evaluating...")
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
-        # Then compute decoding metrics (CER) via greedy decoding
+        # Then compute decoding metrics (WER) via greedy decoding
         evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
