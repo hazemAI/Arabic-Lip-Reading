@@ -221,8 +221,8 @@ log_print(f"Loaded {len(videos)} video-label pairs")
 # Split the dataset into training and validation
 X_train, y_train = videos, labels
 splits_root = '../test_data/splits'
-val_vid_dir = splits_root + '/Preprocessed_video/val'
-val_csv_dir = splits_root + '/Csv/val'
+val_vid_dir = splits_root + '/Preprocessed_Video_val/val'
+val_csv_dir = splits_root + '/Csv (Dia val)/val'
 X_val = sorted([
     os.path.join(val_vid_dir, f)
     for f in os.listdir(val_vid_dir)
