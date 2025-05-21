@@ -10,7 +10,6 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import pandas as pd
 from PIL import Image
-from encoders.encoder_models import VisualTemporalEncoder
 from utils import *
 import logging
 from datetime import datetime
@@ -62,16 +61,39 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # %%
 def extract_label(file):
+    label = []
+    diacritics = {
+        '\u064B',  # Fathatan
+        '\u064C',  # Dammatan
+        '\u064D',  # Kasratan
+        '\u064E',  # Fatha
+        '\u064F',  # Damma
+        '\u0650',  # Kasra
+        '\u0651',  # Shadda
+        '\u0652',  # Sukun
+        '\u06E2',  # Small High meem
+    }
+
     sentence = pd.read_csv(file)
-    return sentence['word'].tolist()
+    for word in sentence.word:
+        for char in word:
+            if char not in diacritics:
+                label.append(char)
+            else:
+                label[-1] += char
+
+    return label
+
+tokens = set()
+for i in os.listdir('../Dataset/Csv (with Diacritics)'):
+    file = '../Dataset/Csv (with Diacritics)/' + i
+    label = extract_label(file)
+    tokens.update(label)
 
 mapped_tokens = {}
-mapping_file = '../Dataset/Word_Dataset/words.txt'
-with open(mapping_file, 'r', encoding='utf-8') as f:
-    for idx, line in enumerate(f, start=1):
-        word = line.strip()
-        mapped_tokens[word] = idx
-log_print(f"Loaded {len(mapped_tokens)} word tokens")
+for i, c in enumerate(sorted(tokens, reverse=True), 1):
+    mapped_tokens[c] = i
+
 log_print(mapped_tokens)
 # %% [markdown]
 # ## 3.2. Video Dataset Class
@@ -167,11 +189,13 @@ class VideoDataset(torch.utils.data.Dataset):
 
 # %%
 # Load videos and labels from all original and augmented video folders
-dataset_dir = "../Dataset/Word_Dataset"
-labels_dir = os.path.join(dataset_dir, "Csv (Word)")
+dataset_dir = "../Dataset"
+labels_dir = os.path.join(dataset_dir, "Csv (with Diacritics)")
 videos, labels = [], []
 # Specify exactly which preprocessed video folders to include
-preprocessed_dirs = ["Preprocessed_Video_Word"]
+preprocessed_dirs = [
+    "Preprocessed_Video",
+]
 video_dirs = sorted([
     os.path.join(dataset_dir, d)
     for d in preprocessed_dirs
@@ -193,8 +217,8 @@ log_print(f"Loaded {len(videos)} video-label pairs")
 
 # %%
 # Split the dataset into training and validation
-X_temp, X_test, y_temp, y_test = train_test_split(videos, labels, test_size=5900/5920, random_state=seed)
-X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/20, random_state=seed)
+X_tmp, X_test, y_tmp, y_test = train_test_split(videos, labels, test_size=1984/2004, random_state=42)
+X_train, X_val, y_train, y_val = train_test_split(X_tmp, y_tmp, test_size=2/1984, random_state=42)
 
 # %% [markdown]
 # ## 3.5. DataLoaders
@@ -203,8 +227,8 @@ X_train, X_val, y_train, y_val = train_test_split(X_temp, y_temp, test_size=5/20
 # Defining the video dataloaders (train, validation)
 train_dataset = VideoDataset(X_train, y_train, transform=train_transform)
 val_dataset = VideoDataset(X_val, y_val, transform=val_transform)
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
-val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, pin_memory=True, collate_fn=pad_packed_collate)
+val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, pin_memory=True, collate_fn=pad_packed_collate)
 
 log_print(f"Number of train samples: {len(train_loader.dataset)}")
 log_print(f"Number of validation samples: {len(val_loader.dataset)}")
@@ -220,10 +244,10 @@ eos_token_idx = base_vocab_size + 1  # This places EOS after SOS
 full_vocab_size = base_vocab_size + 2  # +2 for SOS and EOS tokens
 
 # Build reverse mapping for decoding
-idx2token = {v: k for k, v in mapped_tokens.items()}
-idx2token[0] = ""  # Blank token for CTC
-idx2token[sos_token_idx] = "<sos>"  # SOS token
-idx2token[eos_token_idx] = "<eos>"  # EOS token
+idx2char = {v: k for k, v in mapped_tokens.items()}
+idx2char[0] = ""  # Blank token for CTC
+idx2char[sos_token_idx] = "<sos>"  # SOS token
+idx2char[eos_token_idx] = "<eos>"  # EOS token
 log_print(f"Total vocabulary size: {full_vocab_size}")
 log_print(f"SOS token index: {sos_token_idx}")
 log_print(f"EOS token index: {eos_token_idx}")
@@ -258,10 +282,10 @@ mstcn_options = {
 
 # Conformer configuration
 conformer_options = {
-    'attention_dim': 512,
-    'attention_heads': 8,
-    'linear_units': 1024,
-    'num_blocks': 8,
+    'attention_dim': 768,
+    'attention_heads': 12,
+    'linear_units': 3072,
+    'num_blocks': 12,
     'dropout_rate': 0.1,
     'positional_dropout_rate': 0.1,
     'attention_dropout_rate': 0.0,
@@ -274,60 +298,6 @@ TEMPORAL_ENCODER = 'conformer'
 
 # %% [markdown]
 # ## 4.2 Model Initialization and Pretrained Frontend
-
-# %%
-# Initialize the visual-temporal encoder model first
-log_print(f"Initializing vt_encoder model with {TEMPORAL_ENCODER} temporal encoder...")
-
-if TEMPORAL_ENCODER == 'densetcn':
-    vt_encoder = VisualTemporalEncoder(
-        densetcn_options=densetcn_options,
-        hidden_dim=densetcn_options['hidden_dim'],
-        num_tokens=base_vocab_size,
-        relu_type='swish'
-    ).to(device)
-elif TEMPORAL_ENCODER == 'mstcn':
-    vt_encoder = VisualTemporalEncoder(
-        tcn_options=mstcn_options,
-        hidden_dim=mstcn_options['hidden_dim'],
-        num_tokens=base_vocab_size,
-        relu_type='swish'
-    ).to(device)
-elif TEMPORAL_ENCODER == 'conformer':
-    vt_encoder = VisualTemporalEncoder(
-        conformer_options=conformer_options,
-        hidden_dim=conformer_options['attention_dim'],
-        num_tokens=base_vocab_size,
-        relu_type='swish'
-    ).to(device)
-else:
-    raise ValueError(f"Unknown temporal encoder type: {TEMPORAL_ENCODER}")
-
-log_print("vt_encoder model initialized successfully.")
-
-# Load pretrained frontend weights
-log_print("\nLoading pretrained frontend weights...")
-
-pretrained_path = 'encoders/pretrained_visual_frontend.pth'
-pretrained_weights = torch.load(pretrained_path, map_location=device, weights_only=True)
-
-# Load weights into frontend
-vt_encoder.visual_frontend.load_state_dict(pretrained_weights['state_dict'], strict=False)
-log_print(f"Loaded pretrained weights from {pretrained_path}")
-
-# Flag to choose whether to fine-tune the frontend or freeze it
-TRAIN_FRONTEND = True
-
-# Conditionally freeze or fine-tune the frontend
-if TRAIN_FRONTEND:
-    log_print("Frontend parameters will be updated during training")
-else:
-    for param in vt_encoder.visual_frontend.parameters():
-        param.requires_grad = False
-    log_print("Frontend frozen - parameters will not be updated during training")
-
-# %% [markdown]
-# ## 4.3 Decoder and Training Setup
 
 # %%
 # Initialize the E2EVSR end-to-end model
@@ -346,7 +316,7 @@ e2e_model = E2EVSR(
     encoder_type=TEMPORAL_ENCODER,
     ctc_vocab_size=base_vocab_size,
     dec_vocab_size=full_vocab_size,
-    token_list=[idx2token[i] for i in range(full_vocab_size)],
+    token_list=[idx2char[i] for i in range(full_vocab_size)],
     sos=sos_token_idx,
     eos=eos_token_idx,
     pad=0,
@@ -357,10 +327,10 @@ e2e_model = E2EVSR(
         'hidden_dim': e2e_hidden_dim,
     },
     dec_options={
-        'attention_dim': 512,
-        'attention_heads': 8,
-        'linear_units': 1024,
-        'num_blocks': 4,
+        'attention_dim': 768,
+        'attention_heads': 12,
+        'linear_units': 3072,
+        'num_blocks': 6,
         'dropout_rate': 0.1,
         'positional_dropout_rate': 0.1,
         'self_attention_dropout_rate': 0.1,
@@ -371,6 +341,37 @@ e2e_model = E2EVSR(
     label_smoothing=0.2,
 ).to(device)
 
+# # Load mpc001 checkpoint for fine-tuning
+# mpc_checkpoint_path = '/kaggle/working/Arabic-Lip-Reading/model/vsr_trlrs2lrs3vox2avsp_base.pth'
+# log_print(f"Loading mpc001 checkpoint from {mpc_checkpoint_path}")
+# mpc_state = torch.load(mpc_checkpoint_path, map_location=device)
+# mpc_sd = mpc_state.get('state_dict', mpc_state)
+
+# # Map frontend.trunk -> frontend.resnet_trunk
+# mapped_sd = {}
+# for k, v in mpc_sd.items():
+#     if k.startswith('frontend.trunk'):
+#         new_k = 'frontend.resnet_trunk' + k[len('frontend.trunk'):]
+#     else:
+#         new_k = k
+#     mapped_sd[new_k] = v
+
+# # Filter only compatible layers: frontend, encoder.*, decoder.* (excluding embed/output_layer) with matching shapes
+# current_sd = e2e_model.state_dict()
+# filtered_sd = {}
+# for k, v in mapped_sd.items():
+#     if k not in current_sd:
+#         continue
+#     if not (k.startswith('frontend') or k.startswith('proj_encoder') or k.startswith('encoder.') or k.startswith('decoder.')):
+#         continue
+#     if k.startswith('decoder.embed') or k.startswith('decoder.output_layer'):
+#         continue
+#     if current_sd[k].shape != v.shape:
+#         continue
+#     filtered_sd[k] = v
+
+# load_res = e2e_model.load_state_dict(filtered_sd, strict=False)
+# log_print(f"Loaded layers from mpc001 checkpoint, missing keys: {load_res.missing_keys}, unexpected keys: {load_res.unexpected_keys}")
 
 # Training parameters
 initial_lr = 3e-4
@@ -498,7 +499,7 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
     e2e_model.eval()
 
     # Track statistics
-    total_wer = 0
+    total_cer = 0
     sample_count = 0
     all_predictions = []
 
@@ -517,18 +518,12 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
             labels_flat = labels_flat.to(device)
             label_lengths = label_lengths.to(device)
             
-            # Run raw encoder and unpack hidden features if tuple is returned
-            enc_out = vt_encoder(inputs, input_lengths)
-            encoder_features = enc_out[0] if isinstance(enc_out, tuple) else enc_out
-            
-            # Set output_lengths to match the actual encoder output length
-            output_lengths = torch.full((encoder_features.size(0),), encoder_features.size(1), dtype=torch.long, device=device)
-            
+
             if show_samples and i == 0:
                 log_print(f"\nRunning greedy decoding for validation...")
             
             try:
-                logging.info(f"Encoder features shape: {encoder_features.shape}")
+                # logging.info(f"Encoder features shape: {encoder_features.shape}")
                 
                 # Run greedy decoding
                 all_results = e2e_model.transformer_greedy_search(inputs, input_lengths)
@@ -537,8 +532,8 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                 logging.info(f"Received {len(all_results)} result sequences using mode {mode}")
                 
                 # Process each batch item
-                for b in range(encoder_features.size(0)):
-                    logging.info(f"\nProcessing batch item {b+1}/{encoder_features.size(0)}")
+                for b in range(label_lengths.size(0)):
+                    logging.info(f"\nProcessing batch item {b+1}/{label_lengths.size(0)}")
                     sample_count += 1
                     
                     if b < len(all_results):
@@ -562,22 +557,22 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                     # Direct greedy output without cleaning
                     cleaned_seq = list(pred_indices)
                     
-                    # compute WER and edit distance on cleaned sequence
-                    wer, edit_dist = compute_wer(ref_seq, cleaned_seq)
-                    pred_text = indices_to_text_word(cleaned_seq, idx2token)
+                    # compute CER and edit distance on cleaned sequence
+                    cer, edit_dist = compute_cer(ref_seq, cleaned_seq)
+                    pred_text = indices_to_text(cleaned_seq, idx2char)
                     
-                    target_text = indices_to_text_word(target_idx, idx2token)
+                    target_text = indices_to_text(target_idx, idx2char)
                     
                     # Log using the filtered best sequence
                     # Update statistics
-                    total_wer += wer
+                    total_cer += cer
                     
                     # Store prediction details
                     all_predictions.append({
                         'sample_id': sample_count,
                         'pred_text': pred_text,
                         'target_text': target_text,
-                        'wer': wer,
+                        'cer': cer,
                         'edit_distance': edit_dist,
                     })
                     
@@ -594,7 +589,7 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                         logging.info(f"Target indices: {target_idx}")
                         
                     logging.info(f"Edit distance: {edit_dist}")
-                    logging.info(f"WER: {wer:.4f}")
+                    logging.info(f"CER: {cer:.4f}")
                     logging.info("-" * 50)
                     
                     # Print to console if this is a sample we should show
@@ -609,31 +604,38 @@ def evaluate_model(data_loader, epoch=None, print_samples=True):
                             print("Target text: [Contains characters that can't be displayed in console]")
                             
                         print(f"Edit distance: {edit_dist}")
-                        print(f"WER: {wer:.4f}")
+                        print(f"CER: {cer:.4f}")
                         print("-" * 50)
 
                 # Clean up tensors
-                del encoder_features
+                del all_results #, encoder_features, enc_out
                 
                 # Periodically clear cache
                 if i % 3 == 0:  # Every 3 batches
                     gc.collect()
-                    torch.cuda.empty_cache()
-                    logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
             
             except Exception as e:
                 log_print(f"Error during greedy decoding: {str(e)}")
                 log_print(traceback.format_exc())
                 raise
+
+            del inputs, input_lengths, labels_flat, label_lengths
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logging.info(f"Memory cleared. Current GPU memory: {torch.cuda.memory_allocated()/1e6:.2f}MB")
         
         # Write summary statistics
         n_samples = len(data_loader.dataset)
-        avg_wer = total_wer / n_samples
+        avg_cer = total_cer / n_samples
         
         # Always print summary statistics to console
         log_print("\n=== Summary Statistics ===")
         log_print(f"Total samples: {n_samples}")
-        log_print(f"Average WER: {avg_wer:.4f}\n")
+        log_print(f"Average CER: {avg_cer:.4f}\n")
         
 
 # --------------------------------------------------------------------------
@@ -657,22 +659,17 @@ def evaluate_loss(data_loader):
     return running_loss / len(data_loader) if len(data_loader) > 0 else 0.0
 
 # %%
-def train_model(ctc_weight=0.3, checkpoint_path=None):
+def train_model(ctc_weight=0.3, ckpt_path=None):
     best_val_loss = float('inf')
     start_epoch = 0
     rng_state = get_rng_state()
     
     # Load checkpoint if provided
-    if checkpoint_path and os.path.exists(checkpoint_path):
-        log_print(f"Loading checkpoint from {checkpoint_path}...")
+    if ckpt_path and os.path.exists(ckpt_path):
+        log_print(f"Loading checkpoint from {ckpt_path}...")
         
         try:
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            
-            # Load vt_encoder checkpoint non-strictly (ignoring mismatched keys)
-            vt_res = vt_encoder.load_state_dict(
-                checkpoint['vt_encoder_state_dict'], strict=False)
-            log_print(f"Loaded vt_encoder checkpoint (non-strict): missing {vt_res.missing_keys}, unexpected {vt_res.unexpected_keys}")
+            checkpoint = torch.load(ckpt_path, map_location=device)
             
             # Load E2E model checkpoint non-strictly (ignoring mismatched keys)
             dec_res = e2e_model.load_state_dict(
@@ -703,8 +700,8 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             raise
         
     else:
-        if checkpoint_path:
-            log_print(f"Checkpoint file {checkpoint_path} not found. Starting training from scratch.")
+        if ckpt_path:
+            log_print(f"Checkpoint file {ckpt_path} not found. Starting training from scratch.")
         else:
             log_print("No checkpoint specified. Starting training from scratch.")
     
@@ -725,7 +722,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
         print(f"Epoch {epoch + 1}/{total_epochs} - Evaluating...")
         # First compute validation loss under teacher forcing
         val_loss = evaluate_loss(val_loader)
-        # Then compute decoding metrics (WER) via greedy decoding
+        # Then compute decoding metrics (CER) via greedy decoding
         evaluate_model(val_loader, epoch=epoch)
         
         gc.collect()
@@ -743,29 +740,40 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
             # Update the RNG state before saving
             rng_state = get_rng_state()
             
-            checkpoint_path = f'checkpoint_epoch_{epoch+1}.pth'
+            ckpt_path = f'ckpt_{epoch+1}.pth'
             torch.save({
                 'epoch': epoch,
-                'vt_encoder_state_dict': vt_encoder.state_dict(),
                 'e2e_model_state_dict': e2e_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': val_loss,
                 'rng_state': rng_state,
                 'best_val_loss': best_val_loss
-            }, checkpoint_path)
-            log_print(f"Checkpoint saved to {checkpoint_path}")
-        
+            }, ckpt_path)
+            log_print(f"Checkpoint saved to {ckpt_path}")
+            
             # Force synchronize CUDA operations and clear memory after saving
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
+            
+            # Delete old checkpoints, keep only last 3
+            checkpoint_files = sorted(
+                [f for f in os.listdir('.') if f.startswith('ckpt_') and f.endswith('.pth')],
+                key=lambda x: int(x[len('ckpt_'):-4])
+            )
+            if len(checkpoint_files) > 3:
+                for old_ckpt in checkpoint_files[:-3]:
+                    try:
+                        os.remove(old_ckpt)
+                        log_print(f"Deleted old checkpoint {old_ckpt}")
+                    except Exception as e:
+                        log_print(f"Error deleting old checkpoint {old_ckpt}: {e}")
         
         # Save best model if validation loss improves
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save({
                 'epoch': epoch,
-                'vt_encoder_state_dict': vt_encoder.state_dict(),
                 'e2e_model_state_dict': e2e_model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': val_loss,
@@ -776,7 +784,7 @@ def train_model(ctc_weight=0.3, checkpoint_path=None):
     
     log_print("\nTraining completed!")
     log_print(f"Best validation loss: {best_val_loss:.4f}")
-    log_print(f"Final checkpoint saved to: checkpoint_epoch_{total_epochs}.pth")
+    log_print(f"Final checkpoint saved to: ckpt_{total_epochs}.pth")
     log_print(f"Best model saved to: best_model.pth")
 
     
