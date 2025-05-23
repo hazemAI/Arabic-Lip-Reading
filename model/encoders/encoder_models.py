@@ -106,11 +106,18 @@ class VisualFrontend(nn.Module):
     def __init__(self, frontend_nout=64, relu_type='prelu'):
         super(VisualFrontend, self).__init__()
         
-        # Create frontend3D module
+        # Create frontend3D module with correct activation
+        if relu_type == 'prelu':
+            act_fn = nn.PReLU(num_parameters=frontend_nout)
+        elif relu_type == 'swish':
+            act_fn = nn.SiLU(inplace=True)
+        else:
+            act_fn = nn.ReLU(inplace=True)
+
         self.frontend3D = nn.Sequential(
             nn.Conv3d(1, frontend_nout, kernel_size=(5,7,7), stride=(1,2,2), padding=(2,3,3), bias=False),
             nn.BatchNorm3d(frontend_nout),
-            nn.PReLU(num_parameters=frontend_nout) if relu_type == 'prelu' else nn.ReLU(True),
+            act_fn,
             nn.MaxPool3d(kernel_size=(1,3,3), stride=(1,2,2), padding=(0,1,1))
         )
         
@@ -167,18 +174,15 @@ class VisualTemporalEncoder(nn.Module):
         
         # Create the visual frontend
         self.visual_frontend = VisualFrontend(frontend_nout=self.frontend_nout, relu_type=relu_type)
+
+       
+        self.adapter = nn.Linear(self.backend_out, hidden_dim)
             
         # -- TEMPORAL MODULE --
         if tcn_options:
-            # Create and initialize TCN
             tcn_class = tcn_options.pop('tcn_type', 'multiscale')
             if tcn_class == 'multiscale':
                 num_channels = tcn_options.get('num_channels', [hidden_dim//4]*4)
-                
-                if hidden_dim != self.backend_out:
-                    self.adapter = nn.Linear(self.backend_out, hidden_dim)
-                else:
-                    self.adapter = nn.Identity()
                 
                 self.encoder = MultiscaleTCN(
                     input_size=hidden_dim,
@@ -194,7 +198,6 @@ class VisualTemporalEncoder(nn.Module):
             else:
                 raise ValueError("Unsupported TCN type: {}".format(tcn_class))
         elif densetcn_options:
-            # DenseTCN option
             self.encoder = DenseTCN(
                 block_config=densetcn_options['block_config'],
                 growth_rate_set=densetcn_options['growth_rate_set'],
@@ -208,17 +211,7 @@ class VisualTemporalEncoder(nn.Module):
                 squeeze_excitation=densetcn_options.get('squeeze_excitation', False),
             )
             
-            if hidden_dim != self.backend_out:
-                self.adapter = nn.Linear(self.backend_out, hidden_dim)
-            else:
-                self.adapter = nn.Identity()
         elif conformer_options:
-            # Conformer option
-            if hidden_dim != self.backend_out:
-                self.adapter = nn.Linear(self.backend_out, hidden_dim)
-            else:
-                self.adapter = nn.Identity()
-                
             self.encoder = ConformerEncoder(
                 attention_dim=hidden_dim,
                 attention_heads=conformer_options.get('attention_heads', 8),
@@ -283,31 +276,4 @@ class VisualTemporalEncoder(nn.Module):
             else:
                 x = enc_out
         return x
-
-
-    def _initialize_weights_randomly(self):
-        use_sqrt = True
-        if use_sqrt:
-            def f(n):
-                return math.sqrt( 2.0/float(n) )
-        else:
-            def f(n):
-                return 2.0/float(n)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv3d) or isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
-                n = np.prod( m.kernel_size ) * m.out_channels
-                m.weight.data.normal_(0, f(n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
-            elif isinstance(m, nn.BatchNorm3d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-            elif isinstance(m, nn.Linear):
-                n = float(m.weight.data[0].nelement())
-                m.weight.data = m.weight.data.normal_(0, f(n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
+    
