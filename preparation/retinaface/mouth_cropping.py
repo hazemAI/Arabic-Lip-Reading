@@ -20,7 +20,6 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 class AVSRDataLoader(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        # Always use retinaface detector
         from retinaface.detector import LandmarksDetector
         from retinaface.video_process import VideoProcess
         dev = "cuda:0" if torch.cuda.is_available() else "cpu"
